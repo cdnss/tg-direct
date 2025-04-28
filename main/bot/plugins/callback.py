@@ -74,10 +74,9 @@ async def cb_data(bot, update: CallbackQuery):
                     await update.answer("Sorry Your File is Missing from the Server", show_alert=True)
                 else:
                     await update.answer("Message id and file_unique_id miss match", show_alert=True)
-            except MessageDeleteForbidden as e:
+            except MessageDeleteForbidden as e:              
                 print(e)
-                await bot.send_message(
-                    chat_id=Var.BIN_CHANNEL,
+                await update.message.reply_text(
                     text=f"**#ᴇʀʀᴏʀ_ᴛʀᴀᴄᴇʙᴀᴄᴋ:** `{e}`\n#Delete_Link", disable_web_page_preview=True, 
                 )
                 await update.answer(text='Message too old', show_alert=True)

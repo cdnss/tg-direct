@@ -5,7 +5,7 @@ from main.vars import Var
 from pyrogram import filters
 from main.utils.Translation import Language, BUTTON
 
-@StreamBot.on_message(~filters.user(Var.BANNED_USERS) & filters.command('start') & ~filters.edited)
+@StreamBot.on_message(~filters.user(Var.BANNED_USERS) & filters.command('start'))
 async def start(b, m):
     # lang = getattr(Language, m.from_user.language_code)
     lang = getattr(Language, "en")
@@ -15,8 +15,7 @@ async def start(b, m):
         reply_markup=BUTTON.START_BUTTONS
         )
 
-
-@StreamBot.on_message(~filters.user(Var.BANNED_USERS) & filters.command(["about"]) & ~filters.edited)
+@StreamBot.on_message(~filters.user(Var.BANNED_USERS) & filters.command(["about"]))
 async def start(bot, update):
     # lang = getattr(Language, update.from_user.language_code)
     lang = getattr(Language, "en")
@@ -26,8 +25,7 @@ async def start(bot, update):
         reply_markup=BUTTON.ABOUT_BUTTONS
     )
 
-
-@StreamBot.on_message((filters.command('help')) & ~filters.edited & ~filters.user(Var.BANNED_USERS))
+@StreamBot.on_message((filters.command('help')) & ~filters.user(Var.BANNED_USERS))
 async def help_handler(bot, message):
     # lang = getattr(Language, message.from_user.language_code)
     lang = getattr(Language, "en")

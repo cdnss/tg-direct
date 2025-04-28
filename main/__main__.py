@@ -82,7 +82,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as err:
-        logging.error(err.with_traceback(None))
+        logging.error(err)
     finally:
         loop.run_until_complete(cleanup())
         loop.stop()
