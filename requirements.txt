@@ -3,3 +3,4 @@ pyrogram==2.0.106
 python-dotenv
 tgcrypto
 aiofiles
+yt-dlp
