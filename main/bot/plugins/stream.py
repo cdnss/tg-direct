@@ -118,7 +118,9 @@ async def link_handler(c: Client, m: Message):
 
         # Generate download link
         log_msg = await upload_message.forward(chat_id=Var.BIN_CHANNEL)
-        reply_markup, Stream_Text, stream_link = await gen_link(m=upload_message, log_msg=log_msg, from_channel=False)
+        stream_link = f"{Var.URL}{log_msg.id}/{os.path.basename(file_path)}"
+        reply_markup, Stream_Text, _ = await gen_link(m=upload_message, log_msg=log_msg, from_channel=False)
+        Stream_Text = Stream_Text.replace("Download:", f"Download: {stream_link}")
         await upload_message.reply_text(
             text=Stream_Text,
             disable_web_page_preview=True,

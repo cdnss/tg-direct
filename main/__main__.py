@@ -77,6 +77,7 @@ async def cleanup():
     await StreamBot.stop()
 
 if __name__ == "__main__":
+    logging.info("Running in development mode with Docker bind mount.")
     try:
         loop.run_until_complete(start_services())
     except KeyboardInterrupt:
