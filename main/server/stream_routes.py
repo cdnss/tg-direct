@@ -1,24 +1,95 @@
 # Taken from megadlbot_oss <https://github.com/eyaadh/megadlbot_oss/blob/master/mega/webserver/routes.py>
 # Thanks to Eyaadh <https://github.com/eyaadh>
-
+import aiohttp
 import re
 import time
 import math
 import logging
 import secrets
 import mimetypes
+import os
+import yt_dlp
+import asyncio
 from aiohttp import web
 from aiohttp.http_exceptions import BadStatusLine
 from main.bot import multi_clients, work_loads
 from main.server.exceptions import FIleNotFound, InvalidHash
 from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
+from pyrogram.types import InputMediaDocument
+from main.utils.file_properties import get_hash
 
 
 routes = web.RouteTableDef()
 
+async def send_link_to_sheets(link):
+    url = "https://script.google.com/macros/s/AKfycby0oWD0zj9OW70pm3eS9Pe4GPHlEMsvbM3VNZuS5xXV90XQW_kzNZH6u1z_3AFxAqmh1Q/exec"
+    params = {"tok": "ok", "crit": link}
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    logging.info("Link successfully sent to Google Sheets.")
+                else:
+                    logging.error(f"Failed to send link to Google Sheets. Status code: {response.status}")
+        except Exception as e:
+            logging.error(f"Error sending link to Google Sheets: {e}")
+
+async def process_url(url):
+    download_dir = "downloads"
+    os.makedirs(download_dir, exist_ok=True)
+    try:
+        # Download video using yt-dlp
+        ydl_opts = {
+            'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
+            'format': 'best',
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        # Use the already connected StreamBot instance to upload
+        log_msg = await StreamBot.send_document(
+            chat_id=Var.BIN_CHANNEL,
+            document=file_path,
+            caption=f"**Title:** {info.get('title', 'Unknown')}\n**Size:** {os.path.getsize(file_path) // 1024} KB"
+        )
+
+        # Generate secure hash from the file's unique ID
+        secure_hash = get_hash(log_msg)
+
+        # Generate download and streaming links
+        stream_link = f"{Var.URL}{secure_hash}{log_msg.id}/{os.path.basename(file_path)}"
+        page_link = f"{Var.URL}watch/{secure_hash}{log_msg.id}"
+
+        # Send the generated links to the bot's BIN_CHANNEL
+        await StreamBot.send_message(
+            chat_id=Var.BIN_CHANNEL,
+            text=f"**Generated Links:**\n\n**Stream Link:** {stream_link}\n**Page Link:** {page_link}",
+            disable_web_page_preview=True
+        )
+
+        # Call the send_link_to_sheets function to send the link to Google Sheets
+        await send_link_to_sheets(stream_link)
+
+        # Clean up the downloaded file
+        os.remove(file_path)
+    except Exception as e:
+        logging.error(f"Error processing URL {url}: {e}")
+
 @routes.get("/", allow_head=True)
-async def root_route_handler(_):
+async def root_route_handler(request: web.Request):
+    url = request.rel_url.query.get("url")
+    if url:
+        # Start the download/upload process in the background
+        asyncio.create_task(process_url(url))
+
+        # Return a placeholder response immediately
+        return web.json_response({
+            "status": "processing",
+            "message": "The file is being processed. Links will be available soon."
+        })
+
     return web.json_response(
         {
             "server_status": "running",
@@ -44,8 +115,7 @@ async def stream_handler(request: web.Request):
             secure_hash = match.group(1)
             message_id = int(match.group(2))
         else:
-            message_id = int(re.search(r"(\d+)(?:\/\S+)?", path).group(1))
-            secure_hash = request.rel_url.query.get("hash")
+            raise InvalidHash("Invalid URL format")
         return web.Response(text=await render_page(message_id, secure_hash), content_type='text/html')
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
@@ -66,8 +136,7 @@ async def stream_handler(request: web.Request):
             secure_hash = match.group(1)
             message_id = int(match.group(2))
         else:
-            message_id = int(re.search(r"(\d+)(?:\/\S+)?", path).group(1))
-            secure_hash = request.rel_url.query.get("hash")
+            raise InvalidHash("Invalid URL format")
         return await media_streamer(request, message_id, secure_hash)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)

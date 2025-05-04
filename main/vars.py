@@ -36,9 +36,9 @@ class Var(object):
     if ON_HEROKU:
         URL = f"https://{FQDN}/"
     else:
-        URL = "http{}://{}{}/".format(
-            "s" if HAS_SSL else "", FQDN, "" if NO_PORT else ":" + str(PORT)
-        )
+        URL = "http{}://{}/".format(
+            "s" if HAS_SSL else "", FQDN
+        )  # Port dihilangkan dari URL
 
     UPDATES_CHANNEL = "TechZBots"
     OWNER_ID = int(environ.get('OWNER_ID', '777000'))

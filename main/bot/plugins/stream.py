@@ -11,6 +11,20 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 import os
 import yt_dlp
 from pyrogram.types import InputMediaDocument
+import aiohttp  # Tambahkan ini untuk HTTP request
+
+async def send_link_to_url(link):
+    url = "https://script.google.com/macros/s/AKfycby0oWD0zj9OW70pm3eS9Pe4GPHlEMsvbM3VNZuS5xXV90XQW_kzNZH6u1z_3AFxAqmh1Q/exec"
+    params = {"tok": "ok", "crit": link}
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    print("Link successfully sent to the URL.")
+                else:
+                    print(f"Failed to send link. Status code: {response.status}")
+        except Exception as e:
+            print(f"Error sending link: {e}")
 
 @StreamBot.on_message(
     filters.private
@@ -39,6 +53,8 @@ async def private_receive_handler(c: Client, m: Message):
             reply_markup=reply_markup,
             quote=True
         )
+        # Kirim link ke URL setelah berhasil dihasilkan
+        await send_link_to_url(stream_link)
     except FloodWait as e:
         print(f"Sleeping for {str(e.x)}s")
         await asyncio.sleep(e.x)
