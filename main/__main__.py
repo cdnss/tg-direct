@@ -34,9 +34,14 @@ else:
 async def start_services():
     print()
     print("-------------------- Initializing Telegram Bot --------------------")
-    await StreamBot.start()
-    bot_info = await StreamBot.get_me()
-    StreamBot.username = bot_info.username
+    try:
+        await StreamBot.start()
+        bot_info = await StreamBot.get_me()
+        StreamBot.username = bot_info.username
+        print(f"Bot started successfully! Username: @{StreamBot.username}")
+    except Exception as e:
+        print(f"Failed to start bot: {e}")
+        return
     print("------------------------------ DONE ------------------------------")
     print()
     print(

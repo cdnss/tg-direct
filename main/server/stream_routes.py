@@ -117,7 +117,7 @@ async def stream_handler(request: web.Request):
             message_id = int(match.group(2))
         else:
             raise InvalidHash("Invalid URL format")
-        return web.Response(text=await render_page(message_id, secure_hash), content_type='text/html')
+        return web.Response(text=await render_page(message_id, secure_hash, request), content_type='text/html')
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
@@ -246,6 +246,26 @@ async def film_proxy_route(request: web.Request):
 
         # Kirim hasil stdout dari Deno script sebagai respons
         return web.Response(text=stdout.decode(), content_type="text/html")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+@routes.get(r"/film/{path:.*}", allow_head=True)
+async def film_proxy_route(request: web.Request):
+    try:
+        # Extract the path after /film
+        path = request.match_info["path"]
+        
+        # Call fetch_lk21.ts with the extracted path as an argument
+        process = subprocess.run(
+            ["deno", "run", "--allow-net", "--allow-read", "main/server/fetch_lk21.ts", path],
+            capture_output=True,
+            text=True
+        )
+        if process.returncode == 0:
+            return web.Response(text=process.stdout, content_type="text/html")
+        else:
+            return web.json_response({"error": process.stderr}, status=500)
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
         return web.json_response({"error": str(e)}, status=500)
