@@ -18,7 +18,7 @@ from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
 from pyrogram.types import InputMediaDocument
 from main.utils.file_properties import get_hash
-
+from main.server.cors_proxy import cors_proxy_handler
 
 routes = web.RouteTableDef()
 
@@ -227,3 +227,22 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
         return_resp.headers.add("Content-Length", str(file_size))
 
     return return_resp
+
+@routes.get("/film", allow_head=True)
+async def film_proxy_route(request: web.Request):
+    target_url = "https://xtgem.com"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(target_url) as response:
+                body = await response.read()
+                headers = {
+                    "Access-Control-Allow-Origin": "*",
+                    "Content-Type": response.headers.get("Content-Type", "application/json"),
+                }
+                return web.Response(body=body, status=response.status, headers=headers)
+    except aiohttp.ClientError as e:
+        logging.error(f"Error fetching URL {target_url}: {e}")
+        return web.json_response({"error": "Failed to fetch the target URL"}, status=500)
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return web.json_response({"error": str(e)}, status=500)
