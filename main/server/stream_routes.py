@@ -18,6 +18,7 @@ from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
 from pyrogram.types import InputMediaDocument
 from main.utils.file_properties import get_hash
+from urllib.parse import quote_plus
 
 import subprocess
 
@@ -59,8 +60,11 @@ async def process_url(url):
         # Generate secure hash from the file's unique ID
         secure_hash = get_hash(log_msg)
 
+        # Ensure the file name is URL-safe
+        encoded_file_name = quote_plus(os.path.basename(file_path))
+
         # Generate download and streaming links
-        stream_link = f"{Var.URL}{secure_hash}{log_msg.id}/{os.path.basename(file_path)}"
+        stream_link = f"{Var.URL}{log_msg.id}/{encoded_file_name}?hash={secure_hash}"
         page_link = f"{Var.URL}watch/{secure_hash}{log_msg.id}"
 
         # Send the generated links to the bot's BIN_CHANNEL
@@ -117,7 +121,7 @@ async def stream_handler(request: web.Request):
             message_id = int(match.group(2))
         else:
             raise InvalidHash("Invalid URL format")
-        return web.Response(text=await render_page(message_id, secure_hash, request), content_type='text/html')
+        return web.Response(text=await render_page(message_id, secure_hash), content_type='text/html')
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
@@ -132,13 +136,23 @@ async def stream_handler(request: web.Request):
 async def stream_handler(request: web.Request):
     try:
         path = request.match_info["path"]
+        # Cek apakah path adalah pattern file download (misal: 1388/agkzadjp4294.mp4)
+        file_dl_match = re.match(r"^(\d+)/.+$", path)
+        if file_dl_match:
+            # Ambil message_id dari path dan hash dari query param
+            message_id = int(file_dl_match.group(1))
+            secure_hash = request.rel_url.query.get("hash", "")
+            if not secure_hash:
+                raise InvalidHash("Missing hash in query parameter")
+            return await media_streamer(request, message_id, secure_hash)
+        # Jika bukan, asumsikan pattern lama: /{secure_hash}{message_id}
         match = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", path)
         if match:
             secure_hash = match.group(1)
             message_id = int(match.group(2))
+            return await media_streamer(request, message_id, secure_hash)
         else:
             raise InvalidHash("Invalid URL format")
-        return await media_streamer(request, message_id, secure_hash)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
@@ -167,14 +181,14 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
         logging.debug(f"Creating new ByteStreamer object for client {index}")
         tg_connect = utils.ByteStreamer(faster_client)
         class_cache[faster_client] = tg_connect
-    logging.debug("before calling get_file_properties")
+
     file_id = await tg_connect.get_file_properties(message_id)
-    logging.debug("after calling get_file_properties")
-    
+
+    # Validate hash correctly
     if file_id.unique_id[:6] != secure_hash:
         logging.debug(f"Invalid hash for message with ID {message_id}")
-        raise InvalidHash
-    
+        raise InvalidHash("The provided hash does not match the file's unique ID.")
+
     file_size = file_id.file_size
 
     if range_header:
