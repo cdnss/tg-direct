@@ -4,12 +4,11 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-RUN apt-get update && apt-get install -y sudo ffmpeg curl unzip && \
+RUN apt-get update && apt-get install --no-install-recommends -y sudo ffmpeg curl unzip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install watchdog && \
     curl -fsSL https://deno.land/x/install/install.sh | sh && \
     mv /root/.deno/bin/deno /usr/local/bin/
 
 # Use volume mount for source code to avoid rebuilding
-CMD ["watchmedo", "auto-restart", "--directory=/app", "--pattern=*.py", "--", "python", "-m", "main"]
+CMD ["python", "-m", "main"]
 EXPOSE 8080
