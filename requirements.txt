@@ -4,4 +4,3 @@ python-dotenv
 tgcrypto
 aiofiles
 yt-dlp
-flask
