@@ -10,5 +10,5 @@ RUN apt-get update && apt-get install --no-install-recommends -y sudo ffmpeg cur
     mv /root/.deno/bin/deno /usr/local/bin/
 COPY . .
 # Use volume mount for source code to avoid rebuilding
-CMD ["/usr/local/bin/python", "-m", "main"]
+CMD ["python3", "-m", "main"]
 EXPOSE 8080
