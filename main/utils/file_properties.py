@@ -32,7 +32,7 @@ async def get_file_ids(client: Client, chat_id: int, message_id: int) -> Optiona
     setattr(file_id, "file_size", getattr(media, "file_size", 0))
     setattr(file_id, "mime_type", getattr(media, "mime_type", ""))
     setattr(file_id, "file_name", getattr(media, "file_name", ""))
-    setattr(file_id, "unique_id", file_unique_id)  # Ensure unique_id is set correctly
+    setattr(file_id, "unique_id", file_unique_id)
     return file_id
 
 def get_media_from_message(message: "Message") -> Any:
@@ -73,26 +73,22 @@ def get_media_file_unique_id(m):
     return getattr(media, "file_unique_id", "")
 
 # Generate Text, Stream Link, reply_markup
-async def gen_link(m: Message, log_msg: Messages, from_channel: bool):
+async def gen_link(m: Message,log_msg: Messages, from_channel: bool):
     """Generate Text for Stream Link, Reply Text and reply_markup"""
     # lang = getattr(Language, message.from_user.language_code)
     lang = getattr(Language, "en")
     file_name = get_name(log_msg)
     file_size = humanbytes(get_media_file_size(log_msg))
 
-    # Ensure consistent hash generation
-    secure_hash = get_hash(log_msg)
+    page_link = f"{Var.URL}watch/{get_hash(log_msg)}{log_msg.id}"
+    stream_link = f"{Var.URL}{log_msg.id}/{quote_plus(get_name(m))}?hash={get_hash(log_msg)}"
+    Stream_Text=lang.stream_msg_text.format(file_name, file_size, stream_link, page_link)
+    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥STREAM", url=page_link), InlineKeyboardButton("Dᴏᴡɴʟᴏᴀᴅ 📥", url=stream_link)]])
 
-    page_link = f"{Var.URL}watch/{secure_hash}{log_msg.id}"
-    stream_link = f"{Var.URL}{log_msg.id}/{quote_plus(file_name)}?hash={secure_hash}"
-    Stream_Text = lang.stream_msg_text.format(file_name, file_size, stream_link, page_link)
-    reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🖥STREAM", url=page_link), InlineKeyboardButton("Dᴏᴡɴʟᴏᴀᴅ 📥", url=stream_link)]
-    ])
-
-    if not from_channel:
-        reply_markup.inline_keyboard.append(
-            [InlineKeyboardButton("❌ Delete Link", callback_data=f"msgdelconf2_{log_msg.id}_{get_media_file_unique_id(log_msg)}")]
-        )
+    if from_channel:
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥STREAM", url=page_link), InlineKeyboardButton("Dᴏᴡɴʟᴏᴀᴅ 📥", url=stream_link)]])
+    else:
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🖥STREAM", url=page_link), InlineKeyboardButton("Dᴏᴡɴʟᴏᴀᴅ 📥", url=stream_link)],
+            [InlineKeyboardButton("❌ Delete Link", callback_data=f"msgdelconf2_{log_msg.id}_{get_media_file_unique_id(log_msg)}")]])
 
     return reply_markup, Stream_Text, stream_link

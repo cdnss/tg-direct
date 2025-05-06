@@ -8,23 +8,6 @@ from main.vars import Var
 from pyrogram import filters, Client
 from pyrogram.errors import FloodWait
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-import os
-import yt_dlp
-from pyrogram.types import InputMediaDocument
-import aiohttp  # Tambahkan ini untuk HTTP request
-
-async def send_link_to_url(link):
-    url = "https://script.google.com/macros/s/AKfycby0oWD0zj9OW70pm3eS9Pe4GPHlEMsvbM3VNZuS5xXV90XQW_kzNZH6u1z_3AFxAqmh1Q/exec"
-    params = {"tok": "ok", "crit": link}
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    print("Link successfully sent to the URL.")
-                else:
-                    print(f"Failed to send link. Status code: {response.status}")
-        except Exception as e:
-            print(f"Error sending link: {e}")
 
 @StreamBot.on_message(
     filters.private
@@ -53,8 +36,6 @@ async def private_receive_handler(c: Client, m: Message):
             reply_markup=reply_markup,
             quote=True
         )
-        # Kirim link ke URL setelah berhasil dihasilkan
-        await send_link_to_url(stream_link)
     except FloodWait as e:
         print(f"Sleeping for {str(e.x)}s")
         await asyncio.sleep(e.x)
@@ -68,7 +49,10 @@ async def channel_receive_handler(bot, broadcast: Message):
     try:
         log_msg = await broadcast.forward(chat_id=Var.BIN_CHANNEL)
         log_msg_id = log_msg.message_id
-        stream_link = "http://{}:{}/{}".format(Var.FQDN,Var.PORT,log_msg_id)
+        stream_link = "https://{}/{}".format(Var.FQDN, log_msg_id) if Var.ON_HEROKU or Var.NO_PORT else \
+            "http://{}:{}/{}".format(Var.FQDN,
+                                    Var.PORT,
+                                    log_msg_id)
         await log_msg.reply_text(
             text=f"**Channel Name:** `{broadcast.chat.title}`\n**Channel ID:** `{broadcast.chat.id}`\n**Request URL:** https://t.me/{(await bot.get_me()).username}?start=msgid_{str(log_msg_id)}",
             # text=f"**Cʜᴀɴɴᴇʟ Nᴀᴍᴇ:** `{broadcast.chat.title}`\n**Cʜᴀɴɴᴇʟ ID:** `{broadcast.chat.id}`\n**Rᴇǫᴜᴇsᴛ ᴜʀʟ:** https://t.me/FxStreamBot?start=msgid_{str(log_msg_id)}",
@@ -109,43 +93,4 @@ async def private_receive_handler(c: Client, m: Message):
         print(f"Sleeping for {str(e.x)}s")
         await asyncio.sleep(e.x)
         await c.send_message(chat_id=Var.BIN_CHANNEL, text=f"Got Floodwait Of {str(e.x)}s from [{m.from_user.first_name}](tg://user?id={m.from_user.id})\n\n**User ID :** `{str(m.from_user.id)}`", disable_web_page_preview=True, )
-
-@StreamBot.on_message(filters.private & filters.text & ~filters.user(Var.BANNED_USERS), group=5)
-async def link_handler(c: Client, m: Message):
-    url = m.text.strip()
-    download_dir = "downloads"
-    os.makedirs(download_dir, exist_ok=True)
-    try:
-        # Download video using yt-dlp
-        ydl_opts = {
-            'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
-            'format': 'best',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
-
-        # Upload to Telegram
-        sent_message = await m.reply_text("Uploading to Telegram...")
-        upload_message = await m.reply_document(
-            document=file_path,
-            caption=f"**Title:** {info.get('title', 'Unknown')}\n**Size:** {os.path.getsize(file_path) // 1024} KB"
-        )
-
-        # Generate download link
-        log_msg = await upload_message.forward(chat_id=Var.BIN_CHANNEL)
-        stream_link = f"{Var.URL}{log_msg.id}/{os.path.basename(file_path)}"
-        reply_markup, Stream_Text, _ = await gen_link(m=upload_message, log_msg=log_msg, from_channel=False)
-        Stream_Text = Stream_Text.replace("Download:", f"Download: {stream_link}")
-        await upload_message.reply_text(
-            text=Stream_Text,
-            disable_web_page_preview=True,
-            reply_markup=reply_markup
-        )
-        await sent_message.delete()
-
-        # Clean up
-        os.remove(file_path)
-    except Exception as e:
-        await m.reply_text(f"Error: {str(e)}")
 

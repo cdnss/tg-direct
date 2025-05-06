@@ -34,14 +34,9 @@ else:
 async def start_services():
     print()
     print("-------------------- Initializing Telegram Bot --------------------")
-    try:
-        await StreamBot.start()
-        bot_info = await StreamBot.get_me()
-        StreamBot.username = bot_info.username
-        print(f"Bot started successfully! Username: @{StreamBot.username}")
-    except Exception as e:
-        print(f"Failed to start bot: {e}")
-        return
+    await StreamBot.start()
+    bot_info = await StreamBot.get_me()
+    StreamBot.username = bot_info.username
     print("------------------------------ DONE ------------------------------")
     print()
     print(
@@ -82,7 +77,6 @@ async def cleanup():
     await StreamBot.stop()
 
 if __name__ == "__main__":
-    logging.info("Running in development mode with Docker bind mount.")
     try:
         loop.run_until_complete(start_services())
     except KeyboardInterrupt:

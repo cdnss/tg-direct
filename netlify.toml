@@ -1,5 +1,5 @@
 [build]
-  command = "pip install -r requirements.txt && python3 -m main"
+  command = "pip install -r requirements.txt"
   publish = "."
 
 [build.environment]

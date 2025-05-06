@@ -1,100 +1,24 @@
 # Taken from megadlbot_oss <https://github.com/eyaadh/megadlbot_oss/blob/master/mega/webserver/routes.py>
 # Thanks to Eyaadh <https://github.com/eyaadh>
-import aiohttp
+
 import re
 import time
 import math
 import logging
 import secrets
 import mimetypes
-import os
-import yt_dlp
-import asyncio
 from aiohttp import web
 from aiohttp.http_exceptions import BadStatusLine
 from main.bot import multi_clients, work_loads
 from main.server.exceptions import FIleNotFound, InvalidHash
 from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
-from pyrogram.types import InputMediaDocument
-from main.utils.file_properties import get_hash
-from urllib.parse import quote_plus
 
-import subprocess
 
 routes = web.RouteTableDef()
 
-async def send_link_to_sheets(link):
-    url = "https://script.google.com/macros/s/AKfycby0oWD0zj9OW70pm3eS9Pe4GPHlEMsvbM3VNZuS5xXV90XQW_kzNZH6u1z_3AFxAqmh1Q/exec"
-    params = {"tok": "ok", "crit": link}
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url, params=params) as response:
-                if response.status == 200:
-                    logging.info("Link successfully sent to Google Sheets.")
-                else:
-                    logging.error(f"Failed to send link to Google Sheets. Status code: {response.status}")
-        except Exception as e:
-            logging.error(f"Error sending link to Google Sheets: {e}")
-
-async def process_url(url):
-    download_dir = "downloads"
-    os.makedirs(download_dir, exist_ok=True)
-    try:
-        # Download video using yt-dlp
-        ydl_opts = {
-            'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
-            'format': 'best',
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
-
-        # Use the already connected StreamBot instance to upload
-        log_msg = await StreamBot.send_document(
-            chat_id=Var.BIN_CHANNEL,
-            document=file_path,
-            caption=f"**Title:** {info.get('title', 'Unknown')}\n**Size:** {os.path.getsize(file_path) // 1024} KB"
-        )
-
-        # Generate secure hash from the file's unique ID
-        secure_hash = get_hash(log_msg)
-
-        # Ensure the file name is URL-safe
-        encoded_file_name = quote_plus(os.path.basename(file_path))
-
-        # Generate download and streaming links
-        stream_link = f"{Var.URL}{log_msg.id}/{encoded_file_name}?hash={secure_hash}"
-        page_link = f"{Var.URL}watch/{secure_hash}{log_msg.id}"
-
-        # Send the generated links to the bot's BIN_CHANNEL
-        await StreamBot.send_message(
-            chat_id=Var.BIN_CHANNEL,
-            text=f"**Generated Links:**\n\n**Stream Link:** {stream_link}\n**Page Link:** {page_link}",
-            disable_web_page_preview=True
-        )
-
-        # Call the send_link_to_sheets function to send the link to Google Sheets
-        await send_link_to_sheets(stream_link)
-
-        # Clean up the downloaded file
-        os.remove(file_path)
-    except Exception as e:
-        logging.error(f"Error processing URL {url}: {e}")
-
 @routes.get("/", allow_head=True)
-async def root_route_handler(request: web.Request):
-    url = request.rel_url.query.get("url")
-    if url:
-        # Start the download/upload process in the background
-        asyncio.create_task(process_url(url))
-
-        # Return a placeholder response immediately
-        return web.json_response({
-            "status": "processing",
-            "message": "The file is being processed. Links will be available soon."
-        })
-
+async def root_route_handler(_):
     return web.json_response(
         {
             "server_status": "running",
@@ -120,14 +44,15 @@ async def stream_handler(request: web.Request):
             secure_hash = match.group(1)
             message_id = int(match.group(2))
         else:
-            raise InvalidHash("Invalid URL format")
+            message_id = int(re.search(r"(\d+)(?:\/\S+)?", path).group(1))
+            secure_hash = request.rel_url.query.get("hash")
         return web.Response(text=await render_page(message_id, secure_hash), content_type='text/html')
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
     except (AttributeError, BadStatusLine, ConnectionResetError):
-        return web.HTTPInternalServerError(text="Internal Server Error")
+        pass
     except Exception as e:
         logging.critical(e.with_traceback(None))
         raise web.HTTPInternalServerError(text=str(e))
@@ -136,29 +61,20 @@ async def stream_handler(request: web.Request):
 async def stream_handler(request: web.Request):
     try:
         path = request.match_info["path"]
-        # Cek apakah path adalah pattern file download (misal: 1388/agkzadjp4294.mp4)
-        file_dl_match = re.match(r"^(\d+)/.+$", path)
-        if file_dl_match:
-            # Ambil message_id dari path dan hash dari query param
-            message_id = int(file_dl_match.group(1))
-            secure_hash = request.rel_url.query.get("hash", "")
-            if not secure_hash:
-                raise InvalidHash("Missing hash in query parameter")
-            return await media_streamer(request, message_id, secure_hash)
-        # Jika bukan, asumsikan pattern lama: /{secure_hash}{message_id}
         match = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", path)
         if match:
             secure_hash = match.group(1)
             message_id = int(match.group(2))
-            return await media_streamer(request, message_id, secure_hash)
         else:
-            raise InvalidHash("Invalid URL format")
+            message_id = int(re.search(r"(\d+)(?:\/\S+)?", path).group(1))
+            secure_hash = request.rel_url.query.get("hash")
+        return await media_streamer(request, message_id, secure_hash)
     except InvalidHash as e:
         raise web.HTTPForbidden(text=e.message)
     except FIleNotFound as e:
         raise web.HTTPNotFound(text=e.message)
     except (AttributeError, BadStatusLine, ConnectionResetError):
-        return web.HTTPInternalServerError(text="Internal Server Error")
+        pass
     except Exception as e:
         logging.critical(e.with_traceback(None))
         raise web.HTTPInternalServerError(text=str(e))
@@ -181,14 +97,14 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
         logging.debug(f"Creating new ByteStreamer object for client {index}")
         tg_connect = utils.ByteStreamer(faster_client)
         class_cache[faster_client] = tg_connect
-
+    logging.debug("before calling get_file_properties")
     file_id = await tg_connect.get_file_properties(message_id)
-
-    # Validate hash correctly
+    logging.debug("after calling get_file_properties")
+    
     if file_id.unique_id[:6] != secure_hash:
         logging.debug(f"Invalid hash for message with ID {message_id}")
-        raise InvalidHash("The provided hash does not match the file's unique ID.")
-
+        raise InvalidHash
+    
     file_size = file_id.file_size
 
     if range_header:
@@ -242,44 +158,3 @@ async def media_streamer(request: web.Request, message_id: int, secure_hash: str
         return_resp.headers.add("Content-Length", str(file_size))
 
     return return_resp
-
-@routes.get("/film", allow_head=True)
-async def film_proxy_route(request: web.Request):
-    try:
-        # Jalankan Deno script untuk fetch data dari lk21.film
-        process = await asyncio.create_subprocess_exec(
-            "deno", "run", "--allow-net", "main/server/fetch_lk21.ts",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            logging.error(f"Deno script error: {stderr.decode().strip()}")
-            return web.json_response({"error": "Failed to fetch data from lk21.film"}, status=500)
-
-        # Kirim hasil stdout dari Deno script sebagai respons
-        return web.Response(text=stdout.decode(), content_type="text/html")
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        return web.json_response({"error": str(e)}, status=500)
-
-@routes.get(r"/film/{path:.*}", allow_head=True)
-async def film_proxy_route(request: web.Request):
-    try:
-        # Extract the path after /film
-        path = request.match_info["path"]
-        
-        # Call fetch_lk21.ts with the extracted path as an argument
-        process = subprocess.run(
-            ["deno", "run", "--allow-net", "--allow-read", "main/server/fetch_lk21.ts", path],
-            capture_output=True,
-            text=True
-        )
-        if process.returncode == 0:
-            return web.Response(text=process.stdout, content_type="text/html")
-        else:
-            return web.json_response({"error": process.stderr}, status=500)
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        return web.json_response({"error": str(e)}, status=500)

@@ -30,10 +30,12 @@ class Language(object):
 <b>🔹Last Updated : [ 04-Apr-22 ]</b>
 """
 
-        stream_msg_text = """
-Successfully Generated Your Link!
-File Name: {}\nFile Size: {}\nDownload: {}\nWatch: {}
-"""
+        stream_msg_text ="""
+<u>**Successfully Generated Your Link !**</u>\n
+<b>📂 File Name :</b> {}\n
+<b>📦 File Size :</b> {}\n
+<b>📥 Download :</b> {}\n
+<b>🖥 Watch :</b> {}"""
 
         ban_text="__Sᴏʀʀʏ Sɪʀ, Yᴏᴜ ᴀʀᴇ Bᴀɴɴᴇᴅ ᴛᴏ ᴜsᴇ ᴍᴇ.__\n\n**[Cᴏɴᴛᴀᴄᴛ Dᴇᴠᴇʟᴏᴘᴇʀ](https://t.me/TechZBots_Support) Tʜᴇʏ Wɪʟʟ Hᴇʟᴘ Yᴏᴜ**"
 
