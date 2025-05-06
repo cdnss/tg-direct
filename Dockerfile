@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y sudo ffmpeg cur
     pip install --no-cache-dir -r requirements.txt && \
     curl -fsSL https://deno.land/x/install/install.sh | sh && \
     mv /root/.deno/bin/deno /usr/local/bin/
-
+COPY . .
 # Use volume mount for source code to avoid rebuilding
 CMD ["/usr/local/bin/python", "-m", "main"]
 EXPOSE 8080
