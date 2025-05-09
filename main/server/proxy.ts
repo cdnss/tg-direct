@@ -1,5 +1,5 @@
 // File: proxy.ts
-import * as cheerio from 'https://deno.land/x/cheerio@1.0.0-rc.12/mod.ts';
+import * as cheerio from 'https://esm.sh/cheerio@1.0.0-rc.12';
 import { URL } from 'node:url';
 
 function rewriteUrl(currentPageUrl: string, baseUrl: string, proxyPrefix: string, urlToRewrite: string): string {
