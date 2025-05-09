@@ -1,11 +1,15 @@
 # File: prox.py
 
 import aiohttp
-from aiohttp import web
+from aiohttp import web, ClientTimeout # Import ClientTimeout
 import logging # Pastikan logging diimpor
 
 # Definisikan objek RouteTableDef untuk route proxy
 routes = web.RouteTableDef()
+
+# Definisikan timeout untuk permintaan klien aiohttp (misal, total 60 detik)
+request_timeout = ClientTimeout(total=30)
+
 
 # Handler untuk route spesifik '/film' (tanpa slash di akhir)
 @routes.route('*', '/film')
@@ -36,14 +40,16 @@ async def cors_proxy_root(request):
                 payload = await request.read()
                 logging.debug(f"Reading request body for method {request.method}")
 
+            # Lakukan permintaan ke target URL DENGAN TIMEOUT
             async with session.request(
                 request.method,
                 target_url,
                 headers=headers,
-                data=payload
+                data=payload,
+                timeout=request_timeout # <--- Timeout diterapkan di sini
             ) as resp:
                 # Baca body respons dari target URL
-                body = await resp.read() # <--- 'body' diberi nilai di sini
+                body = await resp.read() # <--- 'body' diberi nilai di sini jika berhasil
 
                 # Salin header respons dari target URL dan tambahkan header CORS
                 proxy_headers = dict(resp.headers)
@@ -55,7 +61,7 @@ async def cors_proxy_root(request):
                 return_resp = web.Response(
                     status=resp.status,
                     headers=proxy_headers,
-                    body=body # 'body' digunakan di sini
+                    body=body
                 )
 
                 # --- Penempatan logging yang lebih aman ---
@@ -67,7 +73,7 @@ async def cors_proxy_root(request):
 
     except Exception as e:
         # Exception apa pun selama session, request, atau read akan tertangkap di sini
-        # Di sini, variabel 'body' MUNGKIN tidak terdefinisi jika error terjadi sebelum assignment
+        # Ini termasuk asyncio.TimeoutError jika timeout terjadi
         logging.error(f"Proxy error for {target_url}: {e}", exc_info=True) # Log error lengkap
         return web.Response(status=500, text=f"Proxy error: {str(e)}") # Kembalikan respons error 500
 
@@ -102,14 +108,16 @@ async def cors_proxy_tail(request):
                 payload = await request.read()
                 logging.debug(f"Reading request body for method {request.method}")
 
+            # Lakukan permintaan ke target URL DENGAN TIMEOUT
             async with session.request(
                 request.method,
                 target_url,
                 headers=headers,
-                data=payload
+                data=payload,
+                timeout=request_timeout # <--- Timeout diterapkan di sini
             ) as resp:
                 # Baca body respons dari target URL
-                body = await resp.read() # <--- 'body' diberi nilai di sini
+                body = await resp.read() # <--- 'body' diberi nilai di sini jika berhasil
 
                 # Salin header respons dari target URL dan tambahkan header CORS
                 proxy_headers = dict(resp.headers)
@@ -121,7 +129,7 @@ async def cors_proxy_tail(request):
                 return_resp = web.Response(
                     status=resp.status,
                     headers=proxy_headers,
-                    body=body # 'body' digunakan di sini
+                    body=body
                 )
 
                 # --- Penempatan logging yang lebih aman ---
