@@ -13,6 +13,7 @@ routes = web.RouteTableDef()
 BASE_URL_FILM = "https://lk21.film"
 # Definisikan prefix proxy untuk rute ini
 PROXY_PREFIX_FILM = "/film/"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
 
 # Fungsi helper untuk menulis ulang URL
 def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
@@ -69,12 +70,14 @@ async def film_proxy_handler(request):
     data = await request.read()
 
     headers.pop('Host', None)
-    headers.pop('Origin', None)
+    #headers.pop('Origin', None)
     headers.pop('If-Modified-Since', None)
     headers.pop('If-None-Match', None)
     headers.pop('Connection', None)
     headers.pop('Proxy-Connection', None)
     headers.pop('Upgrade', None)
+    
+    headers['User-Agent'] = DEFAULT_USER_AGENT # Mengatur User-Agent default
 
     timeout = ClientTimeout(total=60)
 
