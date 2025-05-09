@@ -10,5 +10,5 @@ def web_server():
     # Tambahkan routes proxy terlebih dahulu (yang berisi /film/...)
     web_app.add_routes(prox_routes)
     # Kemudian tambahkan routes streaming/download (yang berisi /{path:\S+})
-    #web_app.add_routes(routes)
+    web_app.add_routes(routes)
     return web_app
