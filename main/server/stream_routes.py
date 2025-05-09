@@ -78,7 +78,7 @@ async def stream_handler_watch(request: web.Request): # Mengganti nama fungsi ag
         logging.critical(f"Unexpected error in stream_handler_watch: {e}", exc_info=True) # exc_info=True untuk melog traceback
         raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}") # Naikkan respons 500 Internal Server Error
 
-@routes.get(r"/dl/{path:\S+}", allow_head=True)
+@routes.get(r"/{path:\S+}", allow_head=True)
 async def stream_handler_download(request: web.Request): # Mengganti nama fungsi agar lebih jelas
     """
     Handler untuk rute default '/...'. Memulai proses streaming file.
