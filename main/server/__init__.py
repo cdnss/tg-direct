@@ -5,9 +5,10 @@
 from aiohttp import web
 from .stream_routes import routes
 from .prox import routes as prox_routes   # Tambahkan baris ini
-
 def web_server():
     web_app = web.Application(client_max_size=30000000)
+    # Tambahkan routes proxy terlebih dahulu (yang berisi /film/...)
     web_app.add_routes(prox_routes)
-    #web_app.add_routes(routes)       # Tambahkan baris ini
+    # Kemudian tambahkan routes streaming/download (yang berisi /{path:\S+})
+    web_app.add_routes(routes)
     return web_app
