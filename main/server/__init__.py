@@ -7,12 +7,18 @@ from aiohttp import CookieJar
 from .stream_routes import routes
 # Import routes dan fungsi check dari prox.py
 from .prox import routes as prox_routes, check_deno_and_script
-import asyncio # Perlu import asyncio untuk startup task
+import asyncio
 
 # Fungsi yang akan dijalankan saat aplikasi dimulai
 async def startup_tasks(app):
-    # Jalankan pemeriksaan Deno dan script saat aplikasi startup
+    # --- Perbaikan Error: Buat CookieJar DI SINI ---
+    # CookieJar dibuat di sini, saat event loop sudah berjalan
+    app['cookie_jar'] = CookieJar(unsafe=True)
+    # --- End Perbaikan Error ---
+
+    # Jalankan pemeriksaan Deno dan script setelah CookieJar dibuat (atau bisa di awal)
     await check_deno_and_script()
+
 
 def web_server():
     web_app = web.Application(client_max_size=30000000)
@@ -20,11 +26,13 @@ def web_server():
     # Tambahkan tugas startup
     web_app.on_startup.append(startup_tasks)
 
-    # Buat CookieJar persisten dan simpan di objek app
-    web_app['cookie_jar'] = CookieJar(unsafe=True)
+    # HAPUS BARIS INI: web_app['cookie_jar'] = CookieJar(unsafe=True)
 
     # Tambahkan routes
     web_app.add_routes(prox_routes)
     # web_app.add_routes(routes) # Baris ini tetap dikomentari sesuai input Anda
 
     return web_app
+
+# Pastikan Anda sudah menghapus baris 'app_cookie_jar = CookieJar(unsafe=True)'
+# dari file prox.py.
