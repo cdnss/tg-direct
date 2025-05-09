@@ -77,7 +77,7 @@ async def film_proxy_handler(request):
     headers.pop('Proxy-Connection', None)
     headers.pop('Upgrade', None)
     
-    headers['User-Agent'] = DEFAULT_USER_AGENT # Mengatur User-Agent default
+    #headers['User-Agent'] = DEFAULT_USER_AGENT # Mengatur User-Agent default
 
     timeout = ClientTimeout(total=60)
 
