@@ -1,63 +1,45 @@
 # File: prox.py
-
 import aiohttp
 from aiohttp import web, ClientTimeout
 import logging
 from urllib.parse import urlparse, urljoin, unquote
-from bs4 import BeautifulSoup
-# Import aiohttp.CookieJar
-from aiohttp import CookieJar
-# Import asyncio untuk get_running_loop jika diperlukan (tapi dengan menyimpan di app, kita tidak perlu manual)
-# import asyncio
+import subprocess
+import json
+import base64
+import os
+import asyncio
 
-
-# Definisikan objek RouteTableDef untuk route proxy
 routes = web.RouteTableDef()
 
-# Definisikan base URL untuk rute /film
 BASE_URL_FILM = "https://lk21.film"
-# Definisikan prefix proxy untuk rute ini
 PROXY_PREFIX_FILM = "/film/"
 
-# Definisikan header default yang akan digunakan
-# Anda mungkin perlu menyesuaikan ini berdasarkan eksperimen
-DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-    'Referer': BASE_URL_FILM + '/', # Mengatur Referer ke halaman utama target
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Upgrade-Insecure-Requests': '1',
-    # Origin kadang perlu, kadang tidak. Coba tambahkan jika tidak memicu error 0
-    # 'Origin': BASE_URL_FILM,
-}
+DENO_SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'proxy.ts')
 
-# Fungsi helper untuk menulis ulang URL
-def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
-    if not url_to_rewrite:
-        return url_to_rewrite
+async def check_deno_and_script():
+    try:
+        proc_check = await asyncio.create_subprocess_exec(
+            'deno', '--version',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        await proc_check.wait()
+        if proc_check.returncode != 0:
+             logging.error("Deno command not found or failed. Please install Deno.")
+        else:
+            stdout, _ = await proc_check.communicate()
+            logging.info(f"Using Deno version: {stdout.decode().strip()}")
 
-    if url_to_rewrite.startswith('mailto:') or \
-       url_to_rewrite.startswith('tel:') or \
-       url_to_rewrite.startswith('javascript:') or \
-       url_to_rewrite.startswith('#') or \
-       url_to_rewrite.startswith('data:'):
-        return url_to_rewrite
+        if not os.path.exists(DENO_SCRIPT_PATH):
+            logging.error(f"Deno script not found at {DENO_SCRIPT_PATH}")
+        else:
+             logging.info(f"Deno script found at: {DENO_SCRIPT_PATH}")
 
-    absolute_url = urljoin(base_url, url_to_rewrite)
-    parsed_url = urlparse(absolute_url)
+    except FileNotFoundError:
+        logging.error("Deno command not found. Please install Deno.")
+    except Exception as e:
+        logging.error(f"Unexpected error during Deno setup check: {e}")
 
-    new_path = parsed_url.path
-    if parsed_url.query:
-        new_path += '?' + parsed_url.query
-
-    proxied_url = proxy_prefix.rstrip('/') + new_path
-
-    return proxied_url
-
-# HAPUS BARIS INI: app_cookie_jar = CookieJar(unsafe=True)
-
-
-# Definisikan handler asinkron untuk rute /film
 @routes.route('*', PROXY_PREFIX_FILM + '{path:.*}')
 async def film_proxy_handler(request):
     path_from_request = request.match_info['path']
@@ -69,89 +51,113 @@ async def film_proxy_handler(request):
 
     target_url = unquote(target_url)
 
-    logging.info(f"Meneruskan permintaan ke: {target_url}")
+    logging.info(f"Meneruskan permintaan ke Deno for: {target_url}")
 
     method = request.method
-    request_data = await request.read()
-
-    # Mulai dengan header default
-    headers = DEFAULT_HEADERS.copy()
-
-    # --- Perbaikan Error: Ambil CookieJar dari objek app ---
-    # Dapatkan cookie_jar dari instance aplikasi yang sedang berjalan
-    cookie_jar = request.app['cookie_jar']
-    # --- End Perbaikan Error ---
+    request_headers = dict(request.headers)
+    request_body = await request.read()
+    request_body_str = request_body.decode('utf-8', errors='ignore')
 
 
-    timeout = ClientTimeout(total=60)
+    input_data = {
+        'targetUrl': target_url,
+        'baseUrl': BASE_URL_FILM,
+        'method': method,
+        'headers': request_headers,
+        'body': request_body_str if request_body else None,
+        'proxyPrefix': PROXY_PREFIX_FILM,
+    }
 
-    # Gunakan CookieJar yang diambil dari app
-    async with aiohttp.ClientSession(timeout=timeout, cookie_jar=cookie_jar) as session:
+    try:
+        deno_command = [
+            'deno', 'run',
+            '--allow-net',
+            '--allow-read=' + os.path.dirname(DENO_SCRIPT_PATH),
+            '--quiet',
+            DENO_SCRIPT_PATH
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *deno_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
         try:
-            async with session.request(method, target_url, headers=headers, data=request_data) as target_response:
-
-                logging.info(f"Mendapat respons {target_response.status} dari {target_url}")
-
-                proxy_response = web.Response(status=target_response.status)
-
-                for header, value in target_response.headers.items():
-                    if header.lower() not in ['content-encoding', 'connection', 'transfer-encoding', 'content-length', 'set-cookie']:
-                         proxy_response.headers[header] = value
-
-                response_body = await target_response.read()
-
-                # --- Logika penulisan ulang URL dimulai di sini ---
-                content_type = target_response.headers.get('Content-Type', '')
-                if 'text/html' in content_type and target_response.status < 400:
-                    try:
-                        charset = target_response.charset or 'utf-8'
-                        soup = BeautifulSoup(response_body.decode(charset, errors='ignore'), 'html.parser')
-
-                        for tag in soup.find_all(['a', 'link', 'script', 'img', 'form']):
-                             if 'href' in tag.attrs:
-                                 original_url = tag['href']
-                                 tag['href'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
-                             elif 'src' in tag.attrs:
-                                 original_url = tag['src']
-                                 tag['src'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
-                             elif 'action' in tag.attrs:
-                                 original_url = tag['action']
-                                 tag['action'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
-
-                        modified_body = str(soup)
-                        proxy_response.body = modified_body.encode('utf-8')
-
-                        if 'Content-Length' in proxy_response.headers:
-                             proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
-
-                    except Exception as e:
-                        logging.error(f"Gagal memproses HTML untuk {target_url}: {e}")
-                        proxy_response.body = response_body
-                else:
-                    proxy_response.body = response_body
-                # --- Logika penulisan ulang URL berakhir di sini ---
-
-
-                return proxy_response
-
-        except aiohttp.ClientError as e:
-            logging.error(f"Kesalahan saat meminta {target_url}: {e}")
-            return web.Response(status=500, text=f"Error fetching target URL: {e}")
+            stdout_data, stderr_data = await asyncio.wait_for(
+                process.communicate(input=json.dumps(input_data).encode('utf-8')),
+                timeout=60
+            )
+        except asyncio.TimeoutError:
+            logging.error(f"Deno script timed out after 60 seconds for {target_url}")
+            process.kill()
+            await process.wait()
+            return web.Response(status=504, text="Proxy Gateway Timeout: Deno script took too long.")
         except Exception as e:
-            logging.error(f"Terjadi kesalahan tak terduga: {e}")
-            return web.Response(status=500, text=f"An unexpected error occurred: {e}")
+             logging.error(f"Error during Deno process communication for {target_url}: {e}")
+             if process.returncode is None:
+                 process.kill()
+                 await process.wait()
+             return web.Response(status=500, text=f"Proxy Error: Deno communication failed: {e}")
 
-# Anda juga perlu menambahkan bagian untuk menjalankan aplikasi aiohttp
-# Letakkan kode ini di akhir file, atau di file entry point aplikasi Anda (__main__.py atau app.py)
-# Jika Anda menggunakannya di file terpisah, pastikan mengimpor `routes` dari `prox.py`
 
-# if __name__ == '__main__':
-#     logging.basicConfig(level=logging.INFO)
-#     app = web.Application(routes=routes)
-#
-#     # --- Perbaikan Error: Buat CookieJar DI SINI dan simpan di app ---
-#     # Sekarang event loop akan segera berjalan setelah app dibuat
-#     app['cookie_jar'] = CookieJar(unsafe=True)
-#     # --- End Perbaikan Error ---
-#
-#     web.run_app(app, port=8080)
+        if process.returncode != 0:
+            stderr_output = stderr_data.decode('utf-8', errors='ignore')
+            logging.error(f"Deno script failed with exit code {process.returncode} for {target_url}")
+            logging.error(f"Deno Stderr:\n{stderr_output}")
+            try:
+                 partial_stdout = stdout_data.decode('utf-8', errors='ignore')
+                 logging.error(f"Deno partial Stdout:\n{partial_stdout}")
+            except Exception:
+                 pass
+            return web.Response(status=500, text=f"Proxy Error: Deno script failed (Code {process.returncode}).")
+
+        try:
+            deno_output_str = stdout_data.decode('utf-8').strip()
+            if not deno_output_str:
+                 logging.error(f"Deno script produced empty stdout for {target_url}. Stderr:\n{stderr_data.decode('utf-8', errors='ignore')}")
+                 return web.Response(status=500, text="Proxy Error: Deno script produced no output.")
+
+            deno_output = json.loads(deno_output_str)
+
+        except json.JSONDecodeError:
+             stderr_output = stderr_data.decode('utf-8', errors='ignore')
+             logging.error(f"Failed to decode JSON from Deno stdout for {target_url}:\n{stdout_data.decode('utf-8', errors='ignore')}")
+             logging.error(f"Deno Stderr:\n{stderr_output}")
+             return web.Response(status=500, text="Proxy Error: Invalid JSON response from Deno script.")
+        except Exception as e:
+             stderr_output = stderr_data.decode('utf-8', errors='ignore')
+             logging.error(f"Unexpected error processing Deno stdout for {target_url}: {e}")
+             logging.error(f"Deno Stderr:\n{stderr_output}")
+             return web.Response(status=500, text="Proxy Error: Failed to process Deno output.")
+
+        proxy_response = web.Response(status=deno_output.get('status', 500))
+
+        output_headers = deno_output.get('headers', {})
+        for header, value in output_headers.items():
+             proxy_response.headers[header] = value
+
+        output_body = deno_output.get('body', '')
+        if output_headers.get('X-Proxy-Body-Encoding') == 'base64':
+             try:
+                 proxy_response.body = base64.b64decode(output_body)
+                 del proxy_response.headers['X-Proxy-Body-Encoding']
+             except Exception as e:
+                 logging.error(f"Failed to decode base64 body from Deno for {target_url}: {e}")
+                 proxy_response.body = output_body.encode('utf-8', errors='ignore')
+                 if 'Content-Type' not in proxy_response.headers or proxy_response.headers['Content-Type'].lower().startswith('application/octet-stream'):
+                     proxy_response.headers['Content-Type'] = 'text/plain'
+
+        else:
+             proxy_response.body = output_body.encode('utf-8', errors='ignore')
+
+
+        return proxy_response
+
+    except FileNotFoundError:
+        logging.error("Deno command not found. Is Deno installed and in PATH?")
+        return web.Response(status=500, text="Proxy Error: Deno not found.")
+    except Exception as e:
+        logging.error(f"Error executing Deno subprocess for {target_url}: {e}")
+        return web.Response(status=500, text=f"Proxy Error: Subprocess setup failed: {e}")
