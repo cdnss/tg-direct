@@ -1,5 +1,4 @@
 // File: proxy.ts
-// Menggunakan import dari esm.sh sesuai permintaan terbaru user
 import cheerio from 'https://esm.sh/cheerio@1.0.0-rc.12';
 import { URL } from 'node:url';
 
@@ -25,13 +24,44 @@ function rewriteUrl(currentPageUrl: string, baseUrl: string, proxyPrefix: string
   }
 }
 
+// --- Fungsi Manual untuk membaca semua data dari Reader ---
+// Menggantikan Deno.readAll dan Deno.stdin.text() untuk kompatibilitas
+async function readAllManual(reader: Deno.Reader): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const buf = new Uint8Array(1024); // Ukuran buffer untuk membaca per chunk
+  while (true) {
+    const nread = await reader.read(buf);
+    if (nread === null) {
+      // End of file (EOF)
+      break;
+    }
+    // Simpan chunk yang dibaca
+    chunks.push(buf.slice(0, nread));
+  }
+
+  // Gabungkan semua chunk menjadi satu Uint8Array
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+// --- Akhir Fungsi Manual ---
+
+
 async function processRequest() {
   try {
-    // --- Perbaikan Error: Gunakan Deno.stdin.text() sebagai pengganti Deno.readAll ---
-    // Membaca input JSON sebagai string dari stdin
-    const inputJsonString = await Deno.stdin.text();
+    // --- Perbaikan Error: Gunakan fungsi readAllManual untuk membaca stdin ---
+    // Membaca semua byte dari stdin menggunakan fungsi manual
+    const inputBytes = await readAllManual(Deno.stdin);
+    // Mendekode byte menjadi string menggunakan TextDecoder
+    const inputJsonString = new TextDecoder().decode(inputBytes);
+    // Mem-parse string JSON
     const requestData = JSON.parse(inputJsonString);
-    // --- End Perbaikan Error ---
+    // --- Akhir Perbaikan Error ---
 
 
     const { targetUrl, baseUrl, method, headers, body, proxyPrefix } = requestData;
