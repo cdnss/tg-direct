@@ -5,6 +5,8 @@ from aiohttp import web, ClientTimeout
 import logging
 from urllib.parse import urlparse, urljoin, unquote
 from bs4 import BeautifulSoup
+# Import aiohttp.CookieJar
+from aiohttp import CookieJar
 
 # Definisikan objek RouteTableDef untuk route proxy
 routes = web.RouteTableDef()
@@ -15,20 +17,17 @@ BASE_URL_FILM = "https://lk21.film"
 PROXY_PREFIX_FILM = "/film/"
 
 # Definisikan header default yang akan digunakan
+# Anda mungkin perlu menyesuaikan ini berdasarkan eksperimen
 DEFAULT_HEADERS = {
-    # Coba User-Agent yang berbeda atau biarkan aiohttp default
-    # 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-    'User-Agent': 'Mozilla/5.0', # Contoh User-Agent yang lebih sederhana
-    # Coba atur Origin, atau hapus jika memicu error 0
-    'Origin': BASE_URL_FILM,
-    # Tambahkan Referer
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
     'Referer': BASE_URL_FILM + '/', # Mengatur Referer ke halaman utama target
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
-    'Connection': 'keep-alive', # aiohttp mengelola ini, tapi kadang membantu
-    'Upgrade-Insecure-Requests': '1', # Header umum dari browser
+    # Connection, Host, Content-Length akan diatur oleh aiohttp
+    'Upgrade-Insecure-Requests': '1',
+    # Origin kadang perlu, kadang tidak. Coba tambahkan jika tidak memicu error 0
+    # 'Origin': BASE_URL_FILM,
 }
-
 
 # Fungsi helper untuk menulis ulang URL
 def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
@@ -53,6 +52,12 @@ def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
 
     return proxied_url
 
+# Buat CookieJar di luar handler agar cookie bisa disimpan antar permintaan dalam sesi aplikasi
+# Perhatikan: Dalam aplikasi web server yang sebenarnya, Anda mungkin perlu
+# mengelola cookie per pengguna atau per sesi klien, bukan global seperti ini.
+# Ini adalah implementasi sederhana untuk menunjukkan cara kerjanya.
+app_cookie_jar = CookieJar(unsafe=True) # unsafe=True memungkinkan semua cookie
+
 
 # Definisikan handler asinkron untuk rute /film
 @routes.route('*', PROXY_PREFIX_FILM + '{path:.*}')
@@ -74,36 +79,40 @@ async def film_proxy_handler(request):
     # Mulai dengan header default
     headers = DEFAULT_HEADERS.copy()
 
-    # Salin header relevan dari permintaan klien (opsional, hati-hati menimpa DEFAULT_HEADERS)
-    # Misalnya, Anda bisa memilih untuk mempertahankan Cookie dari klien jika ada
-    # for header, value in request.headers.items():
-    #     if header.lower() not in ['host', 'origin', 'user-agent', 'referer', 'connection', 'content-length']: # Jangan timpa header penting kita
-    #         headers[header] = value
+    # Anda bisa memilih untuk menambahkan header dari permintaan klien jika diinginkan,
+    # tapi hati-hati jangan menimpa header penting di DEFAULT_HEADERS
+    # Contoh: Menambahkan Cookie dari klien jika ada (ini bisa membantu atau malah diblokir)
+    # if 'Cookie' in request.headers:
+    #     headers['Cookie'] = request.headers['Cookie']
 
-    # aiohttp akan mengelola header seperti Host, Connection, Content-Length
 
     timeout = ClientTimeout(total=60)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    # Gunakan CookieJar yang dibuat di luar handler
+    async with aiohttp.ClientSession(timeout=timeout, cookie_jar=app_cookie_jar) as session:
         try:
-            # Kirim permintaan ke URL target dengan header yang dimodifikasi
+            # Kirim permintaan ke URL target dengan header dan cookie dari cookie_jar
             async with session.request(method, target_url, headers=headers, data=request_data) as target_response:
 
                 logging.info(f"Mendapat respons {target_response.status} dari {target_url}") # Log status respons
 
+                # Cookie dari target_response akan otomatis disimpan di app_cookie_jar oleh aiohttp
+
                 proxy_response = web.Response(status=target_response.status)
 
                 for header, value in target_response.headers.items():
-                    if header.lower() not in ['content-encoding', 'connection', 'transfer-encoding', 'content-length']: # Hapus header yang aiohttp akan kelola atau yang bisa bermasalah
+                    # Jangan salin cookie Set-Cookie kembali ke klien proxy secara langsung
+                    # aiohttp cookie_jar sudah mengelolanya
+                    if header.lower() not in ['content-encoding', 'connection', 'transfer-encoding', 'content-length', 'set-cookie']:
                          proxy_response.headers[header] = value
 
                 response_body = await target_response.read()
 
                 # --- Logika penulisan ulang URL dimulai di sini ---
                 content_type = target_response.headers.get('Content-Type', '')
-                if 'text/html' in content_type:
+                # Hanya proses HTML jika statusnya bukan 403 atau 5xx, dll.
+                if 'text/html' in content_type and target_response.status < 400:
                     try:
-                        # Coba deteksi encoding dari respons atau header
                         charset = target_response.charset or 'utf-8'
                         soup = BeautifulSoup(response_body.decode(charset, errors='ignore'), 'html.parser')
 
@@ -119,36 +128,32 @@ async def film_proxy_handler(request):
                                  tag['action'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
 
                         modified_body = str(soup)
-                        proxy_response.body = modified_body.encode('utf-8') # Selalu encode ke utf-8 untuk respons kita
+                        proxy_response.body = modified_body.encode('utf-8')
 
                         if 'Content-Length' in proxy_response.headers:
-                             # Perbarui Content-Length karena body sudah dimodifikasi
                              proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
-                        # else: # Tambahkan Content-Length jika belum ada
-                        #      proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
-
 
                     except Exception as e:
                         logging.error(f"Gagal memproses HTML untuk {target_url}: {e}")
-                        proxy_response.body = response_body # Kirim body asli jika gagal proses
+                        proxy_response.body = response_body
                 else:
+                    # Jika bukan HTML, atau status error (403, 404, 5xx), kirim body asli
                     proxy_response.body = response_body
                 # --- Logika penulisan ulang URL berakhir di sini ---
-
 
                 return proxy_response
 
         except aiohttp.ClientError as e:
             logging.error(f"Kesalahan saat meminta {target_url}: {e}")
-            # Error 0 atau error koneksi lainnya akan tertangkap di sini
             return web.Response(status=500, text=f"Error fetching target URL: {e}")
         except Exception as e:
             logging.error(f"Terjadi kesalahan tak terduga: {e}")
             return web.Response(status=500, text=f"An unexpected error occurred: {e}")
 
 # Anda juga perlu menambahkan bagian untuk menjalankan aplikasi aiohttp
-# Contoh sederhana (letakkan di bagian akhir file prox.py):
+# Pastikan CookieJar diinisialisasi sebelum app dibuat jika digunakan global
 # if __name__ == '__main__':
 #     logging.basicConfig(level=logging.INFO)
 #     app = web.Application(routes=routes)
+#     # Jika menggunakan CookieJar global, pastikan sudah ada
 #     web.run_app(app, port=8080)
