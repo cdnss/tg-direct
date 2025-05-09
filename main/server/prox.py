@@ -68,8 +68,8 @@ async def film_proxy_handler(request):
     headers = request.headers.copy()
     data = await request.read()
 
-    #headers.pop('Host', None)
-    #headers.pop('Origin', None)
+    headers.pop('Host', None)
+    headers.pop('Origin', None)
     headers.pop('If-Modified-Since', None)
     headers.pop('If-None-Match', None)
     headers.pop('Connection', None)
