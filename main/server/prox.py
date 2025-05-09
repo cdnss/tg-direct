@@ -66,7 +66,7 @@ async def film_proxy_handler(request):
     headers.pop('Proxy-Connection', None)
     headers.pop('Upgrade', None)
     # Hapus Referer dari permintaan asli
-    headers.pop('Referer', None)
+    #headers.pop('Referer', None)
 
 
     # Tambahkan atau modifikasi header untuk meniru permintaan browser
