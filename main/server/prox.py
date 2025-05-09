@@ -13,14 +13,28 @@ routes = web.RouteTableDef()
 BASE_URL_FILM = "https://lk21.film"
 # Definisikan prefix proxy untuk rute ini
 PROXY_PREFIX_FILM = "/film/"
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+
+# Definisikan header default yang akan digunakan
+DEFAULT_HEADERS = {
+    # Coba User-Agent yang berbeda atau biarkan aiohttp default
+    # 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0', # Contoh User-Agent yang lebih sederhana
+    # Coba atur Origin, atau hapus jika memicu error 0
+    'Origin': BASE_URL_FILM,
+    # Tambahkan Referer
+    'Referer': BASE_URL_FILM + '/', # Mengatur Referer ke halaman utama target
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Connection': 'keep-alive', # aiohttp mengelola ini, tapi kadang membantu
+    'Upgrade-Insecure-Requests': '1', # Header umum dari browser
+}
+
 
 # Fungsi helper untuk menulis ulang URL
 def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
     if not url_to_rewrite:
         return url_to_rewrite
 
-    # Jangan rewrite URL yang bukan HTTP/HTTPS atau URL data
     if url_to_rewrite.startswith('mailto:') or \
        url_to_rewrite.startswith('tel:') or \
        url_to_rewrite.startswith('javascript:') or \
@@ -28,25 +42,14 @@ def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
        url_to_rewrite.startswith('data:'):
         return url_to_rewrite
 
-    # Gabungkan URL relatif dengan base_url untuk mendapatkan URL absolut
     absolute_url = urljoin(base_url, url_to_rewrite)
-
-    # Parse URL absolut
     parsed_url = urlparse(absolute_url)
 
-    # Bangun path baru untuk proxy
-    # Kita hanya mengambil path dan query string dari URL absolut
-    # Dan menambahkannya setelah prefix proxy
-    # Contoh: https://lk21.film/some/page?q=test -> /film/some/page?q=test
     new_path = parsed_url.path
     if parsed_url.query:
         new_path += '?' + parsed_url.query
 
-    # Gabungkan prefix proxy dengan path baru
-    proxied_url = proxy_prefix.rstrip('/') + new_path # Pastikan hanya satu '/' antara prefix dan path
-
-    # Anda mungkin perlu menangani skema dan netloc secara eksplisit jika proxyPrefix tidak menyediakannya
-    # Untuk kasus ini, kita berasumsi prefix proxy '/film/' sudah cukup
+    proxied_url = proxy_prefix.rstrip('/') + new_path
 
     return proxied_url
 
@@ -66,30 +69,32 @@ async def film_proxy_handler(request):
     logging.info(f"Meneruskan permintaan ke: {target_url}")
 
     method = request.method
-    headers = request.headers.copy()
-    data = await request.read()
+    request_data = await request.read()
 
-    headers.pop('Host', None)
-    #headers.pop('Origin', None)
-    headers.pop('If-Modified-Since', None)
-    headers.pop('If-None-Match', None)
-    headers.pop('Connection', None)
-    headers.pop('Proxy-Connection', None)
-    headers.pop('Upgrade', None)
-    
-    #headers['User-Agent'] = DEFAULT_USER_AGENT # Mengatur User-Agent default
+    # Mulai dengan header default
+    headers = DEFAULT_HEADERS.copy()
+
+    # Salin header relevan dari permintaan klien (opsional, hati-hati menimpa DEFAULT_HEADERS)
+    # Misalnya, Anda bisa memilih untuk mempertahankan Cookie dari klien jika ada
+    # for header, value in request.headers.items():
+    #     if header.lower() not in ['host', 'origin', 'user-agent', 'referer', 'connection', 'content-length']: # Jangan timpa header penting kita
+    #         headers[header] = value
+
+    # aiohttp akan mengelola header seperti Host, Connection, Content-Length
 
     timeout = ClientTimeout(total=60)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            async with session.request(method, target_url, headers=headers, data=data) as target_response:
-                
+            # Kirim permintaan ke URL target dengan header yang dimodifikasi
+            async with session.request(method, target_url, headers=headers, data=request_data) as target_response:
+
+                logging.info(f"Mendapat respons {target_response.status} dari {target_url}") # Log status respons
 
                 proxy_response = web.Response(status=target_response.status)
 
                 for header, value in target_response.headers.items():
-                    if header not in ['Content-Encoding', 'Connection', 'Transfer-Encoding']:
+                    if header.lower() not in ['content-encoding', 'connection', 'transfer-encoding', 'content-length']: # Hapus header yang aiohttp akan kelola atau yang bisa bermasalah
                          proxy_response.headers[header] = value
 
                 response_body = await target_response.read()
@@ -98,60 +103,44 @@ async def film_proxy_handler(request):
                 content_type = target_response.headers.get('Content-Type', '')
                 if 'text/html' in content_type:
                     try:
-                        # Dekode body respons (misalnya dari gzip atau deflate jika Content-Encoding ada,
-                        # tapi kita sudah menghapus header itu di atas, jadi ini mungkin tidak diperlukan
-                        # atau perlu penanganan decoding yang lebih canggih)
-                        # Untuk saat ini, asumsikan body adalah byte dari HTML
-                        soup = BeautifulSoup(response_body, 'html.parser')
+                        # Coba deteksi encoding dari respons atau header
+                        charset = target_response.charset or 'utf-8'
+                        soup = BeautifulSoup(response_body.decode(charset, errors='ignore'), 'html.parser')
 
-                        # Tulis ulang URL di tag <a>
-                        for a_tag in soup.find_all('a', href=True):
-                            original_href = a_tag['href']
-                            a_tag['href'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_href)
+                        for tag in soup.find_all(['a', 'link', 'script', 'img', 'form']):
+                             if 'href' in tag.attrs:
+                                 original_url = tag['href']
+                                 tag['href'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
+                             elif 'src' in tag.attrs:
+                                 original_url = tag['src']
+                                 tag['src'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
+                             elif 'action' in tag.attrs:
+                                 original_url = tag['action']
+                                 tag['action'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_url)
 
-                        # Tulis ulang URL di tag <link> (misalnya CSS)
-                        for link_tag in soup.find_all('link', href=True):
-                             original_href = link_tag['href']
-                             link_tag['href'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_href)
-
-                        # Tulis ulang URL di tag <script> (atribut src)
-                        for script_tag in soup.find_all('script', src=True):
-                             original_src = script_tag['src']
-                             script_tag['src'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_src)
-
-                         # Tulis ulang URL di tag <img> (atribut src)
-                        for img_tag in soup.find_all('img', src=True):
-                             original_src = img_tag['src']
-                             img_tag['src'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_src)
-
-                         # Tulis ulang URL di tag <form> (atribut action)
-                        for form_tag in soup.find_all('form', action=True):
-                             original_action = form_tag['action']
-                             form_tag['action'] = rewrite_url(target_url, PROXY_PREFIX_FILM, original_action)
-
-
-                        # Dapatkan kembali HTML yang dimodifikasi sebagai string
                         modified_body = str(soup)
-                        proxy_response.body = modified_body.encode('utf-8') # Encode kembali ke bytes
+                        proxy_response.body = modified_body.encode('utf-8') # Selalu encode ke utf-8 untuk respons kita
 
-                        # Perbarui Content-Length jika ada
                         if 'Content-Length' in proxy_response.headers:
-                            proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
+                             # Perbarui Content-Length karena body sudah dimodifikasi
+                             proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
+                        # else: # Tambahkan Content-Length jika belum ada
+                        #      proxy_response.headers['Content-Length'] = str(len(proxy_response.body))
+
 
                     except Exception as e:
                         logging.error(f"Gagal memproses HTML untuk {target_url}: {e}")
-                        # Jika gagal memproses HTML, kirimkan body asli saja
-                        proxy_response.body = response_body
+                        proxy_response.body = response_body # Kirim body asli jika gagal proses
                 else:
-                    # Jika bukan HTML, kirimkan body asli
                     proxy_response.body = response_body
-                 # --- Logika penulisan ulang URL berakhir di sini ---
+                # --- Logika penulisan ulang URL berakhir di sini ---
 
 
                 return proxy_response
 
         except aiohttp.ClientError as e:
             logging.error(f"Kesalahan saat meminta {target_url}: {e}")
+            # Error 0 atau error koneksi lainnya akan tertangkap di sini
             return web.Response(status=500, text=f"Error fetching target URL: {e}")
         except Exception as e:
             logging.error(f"Terjadi kesalahan tak terduga: {e}")
