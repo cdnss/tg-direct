@@ -1,3 +1,17 @@
+# File: prox.py - Dengan Content Rewriting (HTML Sederhana)
+
+import aiohttp
+from aiohttp import web, ClientTimeout
+import logging
+# Import library untuk parsing URL
+from urllib.parse import urlparse, urljoin, unquote
+# Import library untuk parsing HTML
+from bs4 import BeautifulSoup # Pastikan Anda sudah menginstal beautifulsoup4 (pip install beautifulsoup4)
+
+# Definisikan objek RouteTableDef untuk route proxy
+routes = web.RouteTableDef()
+
+
 # Definisikan handler asinkron untuk semua metode HTTP
 @routes.route('*', '/{url:.*}')
 async def proxy_handler(request):
