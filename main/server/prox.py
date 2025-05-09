@@ -13,7 +13,7 @@ async def cors_proxy_root(request):
     Handler untuk permintaan ke '/film'. Melakukan proxy ke target URL dasar.
     """
     # Target URL untuk /film. Mungkin halaman utama atau halaman default lainnya.
-    target_url = 'https://lk21.film/'
+    target_url = 'https://xtgem.com'
     logging.info(f"Proxying request for /film to {target_url}")
 
     # Salin header dari permintaan asli, kecuali header 'Host'
