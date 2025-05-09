@@ -5,7 +5,7 @@ WORKDIR /app
 # Instal alat yang dibutuhkan untuk mengunduh Deno
 # curl untuk mengunduh script instalasi
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl unzip && \
     rm -rf /var/lib/apt/lists/*
 
 # --- Instalasi Deno ---
