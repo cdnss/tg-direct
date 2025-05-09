@@ -15,7 +15,7 @@ async def cors_proxy_root(request):
     # Target URL untuk /film. Mungkin halaman utama atau halaman default lainnya.
     target_url = 'https://xtgem.com'
     logging.info(f"Proxying request for /film to {target_url}")
-    logging.debug(f"Received {len(body)} bytes from {target_url}. First 200 bytes: {body[:200]!r}")
+    
     # Salin header dari permintaan asli, kecuali header 'Host'
     # Header 'Host' perlu disesuaikan dengan target_url oleh aiohttp.ClientSession
     headers = {k: v for k, v in request.headers.items() if k.lower() != 'host'}
@@ -57,7 +57,7 @@ async def cors_proxy_root(request):
                 proxy_headers['Access-Control-Allow-Origin'] = '*'
                 proxy_headers['Access-Control-Allow-Headers'] = '*'
                 proxy_headers['Access-Control-Allow-Methods'] = '*' # Tambahkan lagi untuk respons utama
-
+                logging.debug(f"Received {len(body)} bytes from {target_url}. First 200 bytes: {body[:200]!r}")
                 # Buat dan kembalikan respons web
                 return web.Response(
                     status=resp.status,     # Gunakan status respons dari target
