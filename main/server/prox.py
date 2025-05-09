@@ -1,4 +1,3 @@
-
 import aiohttp
 from aiohttp import web
 
@@ -9,6 +8,17 @@ async def cors_proxy(request):
     tail = request.match_info['tail']
     target_url = f'https://lk21.film/{tail}'
     headers = {k: v for k, v in request.headers.items() if k.lower() != 'host'}
+
+    # Untuk handle preflight CORS
+    if request.method == "OPTIONS":
+        return web.Response(
+            status=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Methods": "*",
+            }
+        )
 
     try:
         async with aiohttp.ClientSession() as session:
