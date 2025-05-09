@@ -7,6 +7,9 @@ from urllib.parse import urlparse, urljoin, unquote
 from bs4 import BeautifulSoup
 # Import aiohttp.CookieJar
 from aiohttp import CookieJar
+# Import asyncio untuk get_running_loop jika diperlukan (tapi dengan menyimpan di app, kita tidak perlu manual)
+# import asyncio
+
 
 # Definisikan objek RouteTableDef untuk route proxy
 routes = web.RouteTableDef()
@@ -23,7 +26,6 @@ DEFAULT_HEADERS = {
     'Referer': BASE_URL_FILM + '/', # Mengatur Referer ke halaman utama target
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
-    # Connection, Host, Content-Length akan diatur oleh aiohttp
     'Upgrade-Insecure-Requests': '1',
     # Origin kadang perlu, kadang tidak. Coba tambahkan jika tidak memicu error 0
     # 'Origin': BASE_URL_FILM,
@@ -52,11 +54,7 @@ def rewrite_url(base_url, proxy_prefix, url_to_rewrite):
 
     return proxied_url
 
-# Buat CookieJar di luar handler agar cookie bisa disimpan antar permintaan dalam sesi aplikasi
-# Perhatikan: Dalam aplikasi web server yang sebenarnya, Anda mungkin perlu
-# mengelola cookie per pengguna atau per sesi klien, bukan global seperti ini.
-# Ini adalah implementasi sederhana untuk menunjukkan cara kerjanya.
-app_cookie_jar = CookieJar(unsafe=True) # unsafe=True memungkinkan semua cookie
+# HAPUS BARIS INI: app_cookie_jar = CookieJar(unsafe=True)
 
 
 # Definisikan handler asinkron untuk rute /film
@@ -79,30 +77,24 @@ async def film_proxy_handler(request):
     # Mulai dengan header default
     headers = DEFAULT_HEADERS.copy()
 
-    # Anda bisa memilih untuk menambahkan header dari permintaan klien jika diinginkan,
-    # tapi hati-hati jangan menimpa header penting di DEFAULT_HEADERS
-    # Contoh: Menambahkan Cookie dari klien jika ada (ini bisa membantu atau malah diblokir)
-    # if 'Cookie' in request.headers:
-    #     headers['Cookie'] = request.headers['Cookie']
+    # --- Perbaikan Error: Ambil CookieJar dari objek app ---
+    # Dapatkan cookie_jar dari instance aplikasi yang sedang berjalan
+    cookie_jar = request.app['cookie_jar']
+    # --- End Perbaikan Error ---
 
 
     timeout = ClientTimeout(total=60)
 
-    # Gunakan CookieJar yang dibuat di luar handler
-    async with aiohttp.ClientSession(timeout=timeout, cookie_jar=app_cookie_jar) as session:
+    # Gunakan CookieJar yang diambil dari app
+    async with aiohttp.ClientSession(timeout=timeout, cookie_jar=cookie_jar) as session:
         try:
-            # Kirim permintaan ke URL target dengan header dan cookie dari cookie_jar
             async with session.request(method, target_url, headers=headers, data=request_data) as target_response:
 
-                logging.info(f"Mendapat respons {target_response.status} dari {target_url}") # Log status respons
-
-                # Cookie dari target_response akan otomatis disimpan di app_cookie_jar oleh aiohttp
+                logging.info(f"Mendapat respons {target_response.status} dari {target_url}")
 
                 proxy_response = web.Response(status=target_response.status)
 
                 for header, value in target_response.headers.items():
-                    # Jangan salin cookie Set-Cookie kembali ke klien proxy secara langsung
-                    # aiohttp cookie_jar sudah mengelolanya
                     if header.lower() not in ['content-encoding', 'connection', 'transfer-encoding', 'content-length', 'set-cookie']:
                          proxy_response.headers[header] = value
 
@@ -110,7 +102,6 @@ async def film_proxy_handler(request):
 
                 # --- Logika penulisan ulang URL dimulai di sini ---
                 content_type = target_response.headers.get('Content-Type', '')
-                # Hanya proses HTML jika statusnya bukan 403 atau 5xx, dll.
                 if 'text/html' in content_type and target_response.status < 400:
                     try:
                         charset = target_response.charset or 'utf-8'
@@ -137,9 +128,9 @@ async def film_proxy_handler(request):
                         logging.error(f"Gagal memproses HTML untuk {target_url}: {e}")
                         proxy_response.body = response_body
                 else:
-                    # Jika bukan HTML, atau status error (403, 404, 5xx), kirim body asli
                     proxy_response.body = response_body
                 # --- Logika penulisan ulang URL berakhir di sini ---
+
 
                 return proxy_response
 
@@ -151,9 +142,16 @@ async def film_proxy_handler(request):
             return web.Response(status=500, text=f"An unexpected error occurred: {e}")
 
 # Anda juga perlu menambahkan bagian untuk menjalankan aplikasi aiohttp
-# Pastikan CookieJar diinisialisasi sebelum app dibuat jika digunakan global
+# Letakkan kode ini di akhir file, atau di file entry point aplikasi Anda (__main__.py atau app.py)
+# Jika Anda menggunakannya di file terpisah, pastikan mengimpor `routes` dari `prox.py`
+
 # if __name__ == '__main__':
 #     logging.basicConfig(level=logging.INFO)
 #     app = web.Application(routes=routes)
-#     # Jika menggunakan CookieJar global, pastikan sudah ada
+#
+#     # --- Perbaikan Error: Buat CookieJar DI SINI dan simpan di app ---
+#     # Sekarang event loop akan segera berjalan setelah app dibuat
+#     app['cookie_jar'] = CookieJar(unsafe=True)
+#     # --- End Perbaikan Error ---
+#
 #     web.run_app(app, port=8080)
