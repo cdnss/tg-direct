@@ -17,6 +17,10 @@ from main.utils.render_template import render_page
 
 routes = web.RouteTableDef()
 
+from main.server.prox import routes as prox_routes
+
+routes.extend(prox_routes)
+
 @routes.get("/", allow_head=True)
 async def root_route_handler(_):
     return web.json_response(
