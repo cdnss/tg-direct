@@ -1,5 +1,6 @@
 // File: proxy.ts
-import * as cheerio from 'https://esm.sh/cheerio@1.0.0-rc.12';
+// Menggunakan import dari esm.sh sesuai permintaan terbaru user
+import cheerio from 'https://esm.sh/cheerio@1.0.0-rc.12';
 import { URL } from 'node:url';
 
 function rewriteUrl(currentPageUrl: string, baseUrl: string, proxyPrefix: string, urlToRewrite: string): string {
@@ -26,15 +27,19 @@ function rewriteUrl(currentPageUrl: string, baseUrl: string, proxyPrefix: string
 
 async function processRequest() {
   try {
-    const inputJsonString = await Deno.readAll(Deno.stdin);
-    const requestData = JSON.parse(new TextDecoder().decode(inputJsonString));
+    // --- Perbaikan Error: Gunakan Deno.stdin.text() sebagai pengganti Deno.readAll ---
+    // Membaca input JSON sebagai string dari stdin
+    const inputJsonString = await Deno.stdin.text();
+    const requestData = JSON.parse(inputJsonString);
+    // --- End Perbaikan Error ---
+
 
     const { targetUrl, baseUrl, method, headers, body, proxyPrefix } = requestData;
 
     const response = await fetch(targetUrl, {
       method: method,
       headers: headers,
-      body: typeof body === 'string' ? body : undefined, // Ensure body is string or undefined
+      body: typeof body === 'string' ? body : undefined,
     });
 
     const outputHeaders: Record<string, string> = {};
@@ -76,7 +81,6 @@ async function processRequest() {
         outputBody = html;
       }
     } else {
-      // Handle other content types (e.g., images, CSS, JS) as base64
       const buffer = await response.arrayBuffer();
       outputBody = Deno.btoa(String.fromCharCode(...new Uint8Array(buffer)));
       outputHeaders['X-Proxy-Body-Encoding'] = 'base64';
