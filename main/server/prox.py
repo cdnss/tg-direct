@@ -1,4 +1,3 @@
-# File: prox.py
 import aiohttp
 from aiohttp import web, ClientTimeout
 import logging
@@ -8,6 +7,8 @@ import json
 import base64
 import os
 import asyncio
+import re
+
 
 routes = web.RouteTableDef()
 
@@ -40,24 +41,12 @@ async def check_deno_and_script():
     except Exception as e:
         logging.error(f"Unexpected error during Deno setup check: {e}")
 
-@routes.route('*', PROXY_PREFIX_FILM + '{path:.*}')
-async def film_proxy_handler(request):
-    path_from_request = request.match_info['path']
 
-    if path_from_request:
-        target_url = urljoin(BASE_URL_FILM, path_from_request)
-    else:
-        target_url = BASE_URL_FILM
-
-    target_url = unquote(target_url)
-
-    logging.info(f"Meneruskan permintaan ke Deno for: {target_url}")
-
+async def process_with_deno(request: web.Request, target_url: str):
     method = request.method
     request_headers = dict(request.headers)
     request_body = await request.read()
     request_body_str = request_body.decode('utf-8', errors='ignore')
-
 
     input_data = {
         'targetUrl': target_url,
@@ -100,7 +89,6 @@ async def film_proxy_handler(request):
                  process.kill()
                  await process.wait()
              return web.Response(status=500, text=f"Proxy Error: Deno communication failed: {e}")
-
 
         if process.returncode != 0:
             stderr_output = stderr_data.decode('utf-8', errors='ignore')
@@ -152,7 +140,6 @@ async def film_proxy_handler(request):
         else:
              proxy_response.body = output_body.encode('utf-8', errors='ignore')
 
-
         return proxy_response
 
     except FileNotFoundError:
@@ -161,3 +148,17 @@ async def film_proxy_handler(request):
     except Exception as e:
         logging.error(f"Error executing Deno subprocess for {target_url}: {e}")
         return web.Response(status=500, text=f"Proxy Error: Subprocess setup failed: {e}")
+
+
+@routes.route('*', PROXY_PREFIX_FILM + '{path:.*}')
+async def film_proxy_handler(request: web.Request):
+    path_from_request = request.match_info['path']
+    if path_from_request:
+        target_url = urljoin(BASE_URL_FILM, path_from_request)
+    else:
+        target_url = BASE_URL_FILM
+
+    target_url = unquote(target_url)
+    logging.info(f"Proxying /film/ request to Deno for: {target_url}")
+
+    return await process_with_deno(request, target_url)
