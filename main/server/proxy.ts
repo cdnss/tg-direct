@@ -112,7 +112,7 @@ async function processRequest() {
       }
     } else {
       const buffer = await response.arrayBuffer();
-      outputBody = Deno.btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      outputBody = btoa(String.fromCharCode(...new Uint8Array(buffer)));
       outputHeaders['X-Proxy-Body-Encoding'] = 'base64';
     }
 
