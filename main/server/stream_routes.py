@@ -1,3 +1,4 @@
+# File: stream_routes.py
 import re
 import time
 import math
@@ -10,10 +11,18 @@ from main.bot import multi_clients, work_loads
 from main.server.exceptions import FIleNotFound, InvalidHash
 from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
+# Impor fungsi pemrosesan proxy dan konstanta dari prox.py
 from .prox import process_with_deno, BASE_URL_FILM, PROXY_PREFIX_FILM
+from urllib.parse import urljoin # Perlu urljoin di sini
 
 
 routes = web.RouteTableDef()
+
+# Custom exception untuk menandai kegagalan parsing stream
+class StreamParsingFailed(Exception):
+    """Exception kustom saat path tidak cocok dengan format stream atau validasi awal gagal."""
+    pass
+
 
 @routes.get("/", allow_head=True)
 async def root_route_handler(_):
@@ -64,60 +73,86 @@ async def stream_handler_watch(request: web.Request):
         logging.critical(f"Unexpected error in stream_handler_watch: {e}", exc_info=True)
         raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}")
 
+# Handler untuk rute default '/{path:\S+}'
+# Mencoba stream, jika gagal mencoba proxy
 @routes.get(r"/{path:\S+}", allow_head=True)
 async def stream_handler_download(request: web.Request):
     requested_path = request.match_info["path"]
-    referer = request.headers.get("Referer")
+    # Hapus logika cek referer
+    # referer = request.headers.get("Referer")
+    # proxy_base_url_with_prefix = f"{request.url.scheme}://{request.url.host}{PROXY_PREFIX_FILM}"
+    # if referer and referer.startswith(proxy_base_url_with_prefix): ... else: ...
 
-    proxy_base_url_with_prefix = f"{request.url.scheme}://{request.url.host}{PROXY_PREFIX_FILM}"
+    try:
+        logging.info(f"Attempting to handle /{requested_path} as stream download...")
+        message_id = None
+        secure_hash = None
 
-    if referer and referer.startswith(proxy_base_url_with_prefix):
-        logging.info(f"Proxying Referer-based request via stream_handler_download for: /{requested_path} (Referer: {referer})")
+        # --- Logika Parsing Stream ---
+        # Mencoba parsing format hash+id
+        match_hash_id = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", requested_path)
+        if match_hash_id:
+            secure_hash = match_hash_id.group(1)
+            message_id = int(match_hash_id.group(2))
+            logging.debug(f"Parsed as hash+id: ID={message_id}, Hash={secure_hash}")
+        else:
+            # Mencoba parsing format id saja (memerlukan hash di query param)
+            match_id_only = re.search(r"(\d+)(?:\/\S+)?", requested_path)
+            if match_id_only:
+                 message_id = int(match_id_only.group(1))
+                 secure_hash = request.rel_url.query.get("hash") # Ambil hash dari query param
 
-        target_url = urljoin(BASE_URL_FILM, requested_path)
+                 if not secure_hash:
+                      # Hash diperlukan untuk format id_only, parsing stream gagal
+                      logging.warning(f"Hash missing for stream ID path: /{requested_path}. Stream parsing failed.")
+                      raise StreamParsingFailed("Hash missing for ID-only stream path") # Picu kegagalan parsing stream
 
-        try:
-            return await process_with_deno(request, target_url)
-        except Exception as e:
-            logging.error(f"Error during Deno processing from stream_handler_download for /{requested_path}: {e}")
-            raise web.HTTPInternalServerError(text="An internal proxy processing error occurred.")
+                 # Optional: Basic hash format check jika diperlukan
+                 # if not re.match(r"^[a-zA-Z0-9_-]{6}$", secure_hash):
+                 #     logging.warning(f"Invalid hash format for stream ID path: /{requested_path}. Stream parsing failed.")
+                 #     raise StreamParsingFailed("Invalid hash format")
 
-    else:
-        logging.info(f"Handling non-proxy request as stream download for: /{requested_path}")
-
-        try:
-            match = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", requested_path)
-            if match:
-                secure_hash = match.group(1)
-                message_id = int(match.group(2))
+                 logging.debug(f"Parsed as id_only: ID={message_id}, Hash={secure_hash}")
             else:
-                match_id_only = re.search(r"(\d+)(?:\/\S+)?", requested_path)
-                if not match_id_only:
-                    logging.warning(f"Stream path does not match format: /{requested_path}")
-                    raise web.HTTPNotFound(text=f"File or resource not found: /{requested_path}")
+                 # Path tidak cocok dengan format stream apapun, parsing stream gagal
+                 logging.warning(f"Path does not match any stream format: /{requested_path}. Stream parsing failed.")
+                 raise StreamParsingFailed("Path does not match stream format")
+        # --- Akhir Logika Parsing Stream ---
 
-                message_id = int(match_id_only.group(1))
-                secure_hash = request.rel_url.query.get("hash")
+        # Jika sampai sini, parsing stream berhasil (sesuai pola).
+        # Lanjutkan dengan logika streaming file yang asli.
+        # media_streamer bisa melempar InvalidHash (hash mismatch) atau FIleNotFound saat validasi lebih lanjut.
+        return await media_streamer(request, message_id, secure_hash)
 
-            return await media_streamer(request, message_id, secure_hash)
+    # --- Penanganan Exception: Jika Parsing Stream Gagal ATAU Error Saat Streaming ---
+    # Menangkap StreamParsingFailed ATAU exception yang mungkin dilempar oleh media_streamer
+    # saat mencoba mendapatkan properti file (InvalidHash, FIleNotFound, error koneksi, dll.)
+    except (StreamParsingFailed, InvalidHash, FIleNotFound, ValueError, AttributeError, BadStatusLine, ConnectionResetError) as e:
+        logging.info(f"Stream handling failed for /{requested_path} (Error: {type(e).__name__}). Attempting proxying.")
+        # Konstruksi target URL untuk domain asli
+        target_url = urljoin(BASE_URL_FILM, requested_path)
+        # Panggil fungsi pemrosesan proxy dari prox.py
+        # Tangkap exception yang mungkin muncul dari process_with_deno sebagai internal error server
+        try:
+             return await process_with_deno(request, target_url)
+        except Exception as proxy_e:
+             logging.error(f"Error during proxy processing after stream handling failed for /{requested_path}: {proxy_e}", exc_info=True)
+             # Kembalikan 500 jika bahkan fallback proxy pun gagal
+             raise web.HTTPInternalServerError(text="An error occurred during proxy processing fallback.")
 
-        except InvalidHash as e:
-            logging.warning(f"Invalid hash: {e.message}")
-            raise web.HTTPForbidden(text=e.message)
-        except FIleNotFound as e:
-            logging.warning(f"File not found: {e.message}")
-            raise web.HTTPNotFound(text=e.message)
-        except (AttributeError, BadStatusLine, ConnectionResetError) as e:
-            logging.exception(f"Specific error in stream_handler_download during stream handling: {e}")
-            raise web.HTTPInternalServerError(text="An internal streaming error occurred.")
-        except Exception as e:
-            logging.critical(f"Unexpected error during stream handling in stream_handler_download: {e}", exc_info=True)
-            raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}")
 
+    # Menangkap exception LAINNYA yang benar-benar tidak terduga
+    # Ini adalah kegagalan kritis yang tidak terkait dengan parsing atau error stream/proxy yang diharapkan
+    except Exception as e:
+        logging.critical(f"Truly unexpected error during initial stream handling attempt for /{requested_path}: {e}", exc_info=True)
+        # Kembalikan 500 untuk kegagalan kritis
+        raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}")
 
+# Logika media_streamer tetap sama seperti sebelumnya
 class_cache = {}
 
 async def media_streamer(request: web.Request, message_id: int, secure_hash: str):
+    # ... (Implementasi media_streamer tetap sama) ...
     range_header = request.headers.get("Range", None)
 
     index = min(work_loads, key=work_loads.get)
