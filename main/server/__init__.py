@@ -1,38 +1,33 @@
-# Taken from megadlbot_oss <https://github.com/eyaadh/megadlbot_oss/blob/master/mega/webserver/__init__.py>
-# Thanks to Eyaadh
-# This file is a part of TG-Direct-Link-Generator
-
+import aiohttp
 from aiohttp import web
 from aiohttp import CookieJar
-from .stream_routes import routes
-# Import routes dan fungsi check dari prox.py
-from .prox import routes as prox_routes, check_deno_and_script
+from .stream_routes import routes as stream_routes_routes
+from .prox import routes as prox_routes_routes, check_deno_and_script
 import asyncio
+import logging
 
-# Fungsi yang akan dijalankan saat aplikasi dimulai
+
 async def startup_tasks(app):
-    # --- Perbaikan Error: Buat CookieJar DI SINI ---
-    # CookieJar dibuat di sini, saat event loop sudah berjalan
+    logging.info("Running startup tasks...")
     app['cookie_jar'] = CookieJar(unsafe=True)
-    # --- End Perbaikan Error ---
+    logging.info("CookieJar created and attached to app state.")
 
-    # Jalankan pemeriksaan Deno dan script setelah CookieJar dibuat (atau bisa di awal)
     await check_deno_and_script()
+    logging.info("Deno and script check completed.")
 
 
 def web_server():
+    logging.info("Creating web application...")
     web_app = web.Application(client_max_size=30000000)
 
-    # Tambahkan tugas startup
     web_app.on_startup.append(startup_tasks)
+    logging.info("Startup task registered.")
 
-    # HAPUS BARIS INI: web_app['cookie_jar'] = CookieJar(unsafe=True)
+    web_app.add_routes(prox_routes_routes)
+    logging.info("Proxy routes added.")
 
-    # Tambahkan routes
-    web_app.add_routes(prox_routes)
-    # web_app.add_routes(routes) # Baris ini tetap dikomentari sesuai input Anda
+    web_app.add_routes(stream_routes_routes)
+    logging.info("Stream routes added.")
 
+    logging.info("Web application creation complete.")
     return web_app
-
-# Pastikan Anda sudah menghapus baris 'app_cookie_jar = CookieJar(unsafe=True)'
-# dari file prox.py.
