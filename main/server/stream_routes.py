@@ -11,14 +11,12 @@ from main.bot import multi_clients, work_loads
 from main.server.exceptions import FIleNotFound, InvalidHash
 from main import Var, utils, StartTime, __version__, StreamBot
 from main.utils.render_template import render_page
-# Impor fungsi pemrosesan proxy dan konstanta dari prox.py
 from .prox import process_with_deno, BASE_URL_FILM, PROXY_PREFIX_FILM
-from urllib.parse import urljoin # Perlu urljoin di sini
+from urllib.parse import urljoin
 
 
 routes = web.RouteTableDef()
 
-# Custom exception untuk menandai kegagalan parsing stream
 class StreamParsingFailed(Exception):
     """Exception kustom saat path tidak cocok dengan format stream atau validasi awal gagal."""
     pass
@@ -73,15 +71,9 @@ async def stream_handler_watch(request: web.Request):
         logging.critical(f"Unexpected error in stream_handler_watch: {e}", exc_info=True)
         raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}")
 
-# Handler untuk rute default '/{path:\S+}'
-# Mencoba stream, jika gagal mencoba proxy
 @routes.get(r"/{path:\S+}", allow_head=True)
 async def stream_handler_download(request: web.Request):
     requested_path = request.match_info["path"]
-    # Hapus logika cek referer
-    # referer = request.headers.get("Referer")
-    # proxy_base_url_with_prefix = f"{request.url.scheme}://{request.url.host}{PROXY_PREFIX_FILM}"
-    # if referer and referer.startswith(proxy_base_url_with_prefix): ... else: ...
 
     try:
         logging.info(f"Attempting to handle /{requested_path} as stream download...")
@@ -89,46 +81,39 @@ async def stream_handler_download(request: web.Request):
         secure_hash = None
 
         # --- Logika Parsing Stream ---
-        # Mencoba parsing format hash+id
         match_hash_id = re.search(r"^([a-zA-Z0-9_-]{6})(\d+)$", requested_path)
         if match_hash_id:
             secure_hash = match_hash_id.group(1)
             message_id = int(match_hash_id.group(2))
             logging.debug(f"Parsed as hash+id: ID={message_id}, Hash={secure_hash}")
         else:
-            # Mencoba parsing format id saja (memerlukan hash di query param)
             match_id_only = re.search(r"(\d+)(?:\/\S+)?", requested_path)
             if match_id_only:
                  message_id = int(match_id_only.group(1))
-                 secure_hash = request.rel_url.query.get("hash") # Ambil hash dari query param
+                 secure_hash = request.rel_url.query.get("hash")
 
                  if not secure_hash:
-                      # Hash diperlukan untuk format id_only, parsing stream gagal
                       logging.warning(f"Hash missing for stream ID path: /{requested_path}. Stream parsing failed.")
-                      raise StreamParsingFailed("Hash missing for ID-only stream path") # Picu kegagalan parsing stream
-
-                 # Optional: Basic hash format check jika diperlukan
-                 # if not re.match(r"^[a-zA-Z0-9_-]{6}$", secure_hash):
-                 #     logging.warning(f"Invalid hash format for stream ID path: /{requested_path}. Stream parsing failed.")
-                 #     raise StreamParsingFailed("Invalid hash format")
+                      raise StreamParsingFailed("Hash missing for ID-only stream path")
 
                  logging.debug(f"Parsed as id_only: ID={message_id}, Hash={secure_hash}")
             else:
-                 # Path tidak cocok dengan format stream apapun, parsing stream gagal
                  logging.warning(f"Path does not match any stream format: /{requested_path}. Stream parsing failed.")
+                 # --- PERBAIKAN DI SINI: Naikkan StreamParsingFailed BUKAN HTTPNotFound ---
+                 # Ketika parsing stream gagal, picu exception kustom untuk beralih ke proxy fallback
                  raise StreamParsingFailed("Path does not match stream format")
+                 # --- End Perbaikan ---
         # --- Akhir Logika Parsing Stream ---
 
-        # Jika sampai sini, parsing stream berhasil (sesuai pola).
-        # Lanjutkan dengan logika streaming file yang asli.
+        # Jika parsing berhasil (tidak ada StreamParsingFailed yang dinaikkan), panggil media_streamer.
         # media_streamer bisa melempar InvalidHash (hash mismatch) atau FIleNotFound saat validasi lebih lanjut.
         return await media_streamer(request, message_id, secure_hash)
 
     # --- Penanganan Exception: Jika Parsing Stream Gagal ATAU Error Saat Streaming ---
     # Menangkap StreamParsingFailed ATAU exception yang mungkin dilempar oleh media_streamer
-    # saat mencoba mendapatkan properti file (InvalidHash, FIleNotFound, error koneksi, dll.)
+    # saat mencoba mendapatkan properti file (InvalidHash, FIleNotFound, error koneksi, ValueError dari int(), dll.)
     except (StreamParsingFailed, InvalidHash, FIleNotFound, ValueError, AttributeError, BadStatusLine, ConnectionResetError) as e:
-        logging.info(f"Stream handling failed for /{requested_path} (Error: {type(e).__name__}). Attempting proxying.")
+        logging.info(f"Stream handling failed for /{requested_path} (Error: {type(e).__name__}: {e}). Attempting proxying.")
         # Konstruksi target URL untuk domain asli
         target_url = urljoin(BASE_URL_FILM, requested_path)
         # Panggil fungsi pemrosesan proxy dari prox.py
@@ -148,11 +133,10 @@ async def stream_handler_download(request: web.Request):
         # Kembalikan 500 untuk kegagalan kritis
         raise web.HTTPInternalServerError(text=f"An unexpected server error occurred: {str(e)}")
 
-# Logika media_streamer tetap sama seperti sebelumnya
+
 class_cache = {}
 
 async def media_streamer(request: web.Request, message_id: int, secure_hash: str):
-    # ... (Implementasi media_streamer tetap sama) ...
     range_header = request.headers.get("Range", None)
 
     index = min(work_loads, key=work_loads.get)
