@@ -3,7 +3,7 @@ export function jq(nama: string): string {
 <script>
 $(function(){
    $("#loadProviders a").each( function(){
-     let src = decodeURIComponent( $(this).attr("href") ).split("=")
+     let src = decodeURIComponent( $(this).attr("href") ).split("=")[1]
      $(this).attr("href", src)
      })
 
