@@ -60,9 +60,7 @@ async def process_with_deno(request: web.Request, target_url: str):
     try:
         deno_command = [
             'deno', 'run',
-            '--allow-net',
-            '--allow-read=' + os.path.dirname(DENO_SCRIPT_PATH),
-            '--quiet',
+            '-A',
             DENO_SCRIPT_PATH
         ]
 
