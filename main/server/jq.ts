@@ -1,4 +1,5 @@
-export function jq(nama: string): string {`
+export function jq(nama: string): string {
+   return`
 <script>
 $(function(){
    $("#loadProviders a").each( function(){
