@@ -1,10 +1,30 @@
-// File: proxy.ts
 
 import { manipulateHtml } from './parsing.ts';
 
+async function readAllManual(reader: Deno.Reader): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const buf = new Uint8Array(4096);
+  while (true) {
+    const nread = await reader.read(buf);
+    if (nread === null) {
+      break;
+    }
+    chunks.push(buf.slice(0, nread));
+  }
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 async function processRequest() {
   try {
-    const inputJsonString = await Deno.stdin.text();
+    const inputBytes = await readAllManual(Deno.stdin);
+    const inputJsonString = new TextDecoder().decode(inputBytes);
     const requestData = JSON.parse(inputJsonString);
 
     const { targetUrl, baseUrl, method, headers, body, proxyPrefix } = requestData;
@@ -19,8 +39,9 @@ async function processRequest() {
 
     const outputHeaders: Record<string, string> = {};
     response.headers.forEach((value, name) => {
-      if (!['content-encoding', 'connection', 'transfer-encoding', 'content-length', 'set-cookie'].includes(name.toLowerCase())) {
-         outputHeaders[name] = value;
+      const lowerName = name.toLowerCase();
+      if (!['content-encoding', 'connection', 'transfer-encoding', 'content-length', 'set-cookie'].includes(lowerName)) {
+        outputHeaders[name] = value;
       }
     });
 
