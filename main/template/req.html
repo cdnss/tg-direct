@@ -10,9 +10,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Raleway">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Delius">
     <link rel="stylesheet" href="https://cdn.plyr.io/3.5.6/plyr.css" />
-    <!-- <link rel="stylesheet" href="style.css"> -->
-
-</head>
+    </head>
 
 <body>
     <header>
@@ -47,17 +45,32 @@
               'download',
               'fullscreen'
             ];
-        document.addEventListener('DOMContentLoaded', () => {
-            const player = Plyr.setup('.player', { controls });
-        });
 
-        const body = document.querySelector('body');
-        const footer = document.querySelector('footer');
-        const toogle = document.querySelector('.toogle');
-        toogle.onclick = () => {
-            body.classList.toggle('dark')
-            footer.classList.toggle('dark')
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            // Bagian untuk mengambil parameter URL dan mengatur src
+            const urlParams = new URLSearchParams(window.location.search);
+            const srcFromUrl = urlParams.get('src'); // Asumsi parameter URL bernama 'src'
+            const playerElement = document.querySelector('.player');
+
+            if (srcFromUrl && playerElement) {
+                playerElement.setAttribute('src', srcFromUrl);
+            }
+
+            // Inisialisasi Plyr setelah src mungkin diubah
+            const player = Plyr.setup('.player', { controls });
+
+            // Kode untuk toogle dark mode
+            const body = document.querySelector('body');
+            // Periksa apakah footer ada sebelum menambahkan event listener
+            const footer = document.querySelector('footer');
+            const toogle = document.querySelector('.toogle');
+            toogle.onclick = () => {
+                body.classList.toggle('dark');
+                if (footer) { // Hanya toggle kelas 'dark' pada footer jika elemen footer ada
+                    footer.classList.toggle('dark');
+                }
+            }
+        });
     </script>
 </body>
 </html>
