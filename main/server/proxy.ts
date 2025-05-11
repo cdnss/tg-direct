@@ -1,72 +1,17 @@
 // File: proxy.ts
-import cheerio from 'https://esm.sh/cheerio@1.0.0-rc.12';
-import { URL } from 'node:url';
 
-function rewriteUrl(currentPageUrl: string, baseUrl: string, proxyPrefix: string, urlToRewrite: string): string {
-  if (!urlToRewrite || urlToRewrite.match(/^(mailto|tel|javascript|#|data):/)) {
-    return urlToRewrite;
-  }
-
-  try {
-    const absoluteUrl = new URL(urlToRewrite, currentPageUrl);
-    const baseUrlObject = new URL(baseUrl);
-
-    if (absoluteUrl.hostname !== baseUrlObject.hostname) {
-         return absoluteUrl.toString();
-    }
-
-    const finalPath = absoluteUrl.pathname + absoluteUrl.search;
-    return proxyPrefix.replace(/\/+$/, '') + '/' + finalPath.replace(/^\/+/, '');
-
-  } catch (e) {
-    console.error("Error rewriting URL:", urlToRewrite, e);
-    return urlToRewrite;
-  }
-}
-
-// --- Fungsi Manual untuk membaca semua data dari Reader ---
-// Menggantikan Deno.readAll dan Deno.stdin.text() untuk kompatibilitas
-async function readAllManual(reader: Deno.Reader): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  const buf = new Uint8Array(1024); // Ukuran buffer untuk membaca per chunk
-  while (true) {
-    const nread = await reader.read(buf);
-    if (nread === null) {
-      // End of file (EOF)
-      break;
-    }
-    // Simpan chunk yang dibaca
-    chunks.push(buf.slice(0, nread));
-  }
-
-  // Gabungkan semua chunk menjadi satu Uint8Array
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-// --- Akhir Fungsi Manual ---
-
+import { manipulateHtml } from './parsing.ts';
 
 async function processRequest() {
   try {
-    // --- Perbaikan Error: Gunakan fungsi readAllManual untuk membaca stdin ---
-    // Membaca semua byte dari stdin menggunakan fungsi manual
-    const inputBytes = await readAllManual(Deno.stdin);
-    // Mendekode byte menjadi string menggunakan TextDecoder
-    const inputJsonString = new TextDecoder().decode(inputBytes);
-    // Mem-parse string JSON
+    const inputJsonString = await Deno.stdin.text();
     const requestData = JSON.parse(inputJsonString);
-    // --- Akhir Perbaikan Error ---
-
 
     const { targetUrl, baseUrl, method, headers, body, proxyPrefix } = requestData;
 
-    const response = await fetch(targetUrl, {
+    const decodedTargetUrl = decodeURIComponent(targetUrl);
+
+    const response = await fetch(decodedTargetUrl, {
       method: method,
       headers: headers,
       body: typeof body === 'string' ? body : undefined,
@@ -85,29 +30,10 @@ async function processRequest() {
     if (contentType.includes('text/html') && response.status < 400) {
       const html = await response.text();
       try {
-        const $ = cheerio.load(html);
-
-        $('a[href], link[href], script[src], img[src], form[action]').each((_i, el) => {
-          const tag = $(el);
-          const href = tag.attr('href');
-          const src = tag.attr('src');
-          const action = tag.attr('action');
-
-          if (href) {
-            tag.attr('href', rewriteUrl(targetUrl, baseUrl, proxyPrefix, href));
-          }
-          if (src) {
-             tag.attr('src', rewriteUrl(targetUrl, baseUrl, proxyPrefix, src));
-          }
-          if (action) {
-             tag.attr('action', rewriteUrl(targetUrl, baseUrl, proxyPrefix, action));
-          }
-        });
-
-        outputBody = $.html();
+        outputBody = manipulateHtml(html, decodedTargetUrl, baseUrl, proxyPrefix);
 
       } catch (e) {
-        console.error("Error processing HTML with Cheerio:", e);
+        console.error("Error processing HTML:", e);
         outputBody = html;
       }
     } else {
