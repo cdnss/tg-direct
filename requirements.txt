@@ -1,7 +1,7 @@
 beautifulsoup4
 brotli
 aiohttp
-pyrogram==2.0.106
+pyrogram==1.4.12
 python-dotenv
 tgcrypto
 aiofiles
