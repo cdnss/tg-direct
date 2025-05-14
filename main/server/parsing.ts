@@ -44,7 +44,7 @@ export function manipulateHtml(html: string, currentPageUrl: string, baseUrl: st
              tag.attr('action', rewriteUrl(currentPageUrl, baseUrl, proxyPrefix, action));
           }
         });
-        $("body").append(jq("crot"));
+        $("head").append(jq("crot"));
         return $.html();
 
     } catch (e) {
